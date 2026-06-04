@@ -53,6 +53,7 @@ CORRECT examples (arguments are required — never call with empty parentheses):
   Action: get_similar_movies(27205, 5)
   Action: check_streaming_availability(27205, "VN")
   Action: compare_movies([27205, 157336, 1124])
+  Action: get_reviews(27205, 2)
 
 WRONG — do not do this:
   Action: filter_by_mood()      ← missing required 'mood' argument
@@ -65,6 +66,9 @@ Additional rules:
 - Never invent movie_id values.
 - Valid moods: happy, sad, relaxed, excited, romantic, scary.
 - Use at most one Action per step. Stop when you have enough data.
+- When comparing movies, compare_movies already includes 1-2 real user reviews per movie. You MUST translate each review to Vietnamese and include the full translated review in your Final Answer so the user can read them directly. Format each review clearly with the author name and their full opinion. Do NOT summarize — translate and show the entire review.
+- Use get_reviews separately when the user asks for reviews of a single movie. Always translate the full review content to Vietnamese and include it in your answer for the user to read.
+- When recommending movies, if you have review data, translate the reviews to Vietnamese and include the full text so users can judge for themselves.
 """
 
     def _parse_llm_step(self, content: str) -> Dict[str, Optional[str]]:

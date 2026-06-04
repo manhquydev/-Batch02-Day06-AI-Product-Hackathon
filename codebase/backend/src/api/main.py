@@ -53,7 +53,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-ModeType = Literal["ReAct Agent"]
+ModeType = Literal["ReAct Agent", "ReAct Agent v2", "ReAct Agent v1", "Chatbot Baseline"]
 
 
 class HistoryMessage(BaseModel):

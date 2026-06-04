@@ -173,6 +173,10 @@ export function mapBackendToChatResponse(data: BackendChatResponse): ChatRespons
     movies.length === 2 &&
     /so sánh|compare/i.test(data.answer || "");
 
+  // Don't compact when answer contains reviews — let user read full review text
+  const hasReviews = /review|nhận xét|đánh giá của|bình luận|người dùng.*nói|user.*said/i.test(data.answer || "");
+  const useCompact = movies.length > 0 && !hasReviews;
+
   return {
     kind: "normal",
     layout: !movies.length
@@ -182,7 +186,7 @@ export function mapBackendToChatResponse(data: BackendChatResponse): ChatRespons
         : movies.length === 1
           ? "big"
           : "carousel",
-    text: formatAnswerHtml(data.answer || "", { compact: movies.length > 0 }),
+    text: formatAnswerHtml(data.answer || "", { compact: useCompact }),
     movies,
     reasoning: reasoning.length ? reasoning : undefined,
     plain: data.answer,
