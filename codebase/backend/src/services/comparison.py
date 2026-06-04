@@ -1,9 +1,10 @@
-"""Multi-model parallel comparison (logic from former Streamlit ui/comparison)."""
-from concurrent.futures import ThreadPoolExecutor, as_completed
+"""Async multi-model parallel comparison using asyncio.gather."""
+
+import asyncio
 import os
 from functools import lru_cache
 from pathlib import Path
-from typing import Any, Callable, Dict, List
+from typing import Any, Callable, Dict, List, Optional
 
 from src.services.query_runner import run_query
 
@@ -34,28 +35,23 @@ def build_model_options() -> tuple[str, ...]:
     return tuple(options)
 
 
-def run_parallel_comparison(
+async def run_parallel_comparison(
     selected_models: List[str],
     mode: str,
     query: str,
     max_steps: int,
-    run_fn: Callable | None = None,
+    run_fn: Optional[Callable] = None,
 ) -> Dict[str, Any]:
-    """Run multiple provider/model combos in parallel."""
+    """Run multiple provider/model combos in parallel using asyncio.gather."""
     executor_fn = run_fn or run_query
 
-    def _run_one(key: str):
+    async def _run_one(key: str) -> tuple[str, Dict[str, Any]]:
         provider, model = key.split("/", 1)
         try:
-            res = executor_fn(mode, query, provider, model, max_steps)
+            res = await executor_fn(mode, query, provider, model, max_steps)
             return key, {"ok": True, **res}
         except Exception as exc:
             return key, {"ok": False, "error": str(exc), "answer": f"Lỗi: {exc}"}
 
-    results: Dict[str, Any] = {}
-    with ThreadPoolExecutor(max_workers=len(selected_models)) as executor:
-        futures = {executor.submit(_run_one, key): key for key in selected_models}
-        for future in as_completed(futures):
-            key, result = future.result()
-            results[key] = result
-    return results
+    pairs = await asyncio.gather(*[_run_one(key) for key in selected_models])
+    return {key: result for key, result in pairs}

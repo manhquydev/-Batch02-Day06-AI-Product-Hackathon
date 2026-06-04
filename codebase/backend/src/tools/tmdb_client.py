@@ -1,12 +1,30 @@
+"""Async TMDB API client using httpx with in-memory TTL caching."""
+
+import asyncio
+import hashlib
+import json
 import os
 from typing import Any, Dict, List, Optional
 
-import requests
+import httpx
+from cachetools import TTLCache
 
 TMDB_BASE_URL = "https://api.themoviedb.org/3"
 TMDB_IMAGE_BASE = "https://image.tmdb.org/t/p"
 DEFAULT_LANGUAGE = os.getenv("TMDB_LANGUAGE", "vi-VN")
 DEFAULT_REGION = os.getenv("TMDB_REGION", "VN")
+
+# In-memory TTL caches — shared across requests within the same process
+_details_cache: TTLCache = TTLCache(maxsize=512, ttl=3600)       # movie details: 1 hour
+_search_cache: TTLCache = TTLCache(maxsize=256, ttl=1800)        # search results: 30 min
+_trending_cache: TTLCache = TTLCache(maxsize=64, ttl=1800)       # trending: 30 min
+_providers_cache: TTLCache = TTLCache(maxsize=256, ttl=3600)     # watch providers: 1 hour
+
+
+def _cache_key(path: str, params: Dict[str, Any]) -> str:
+    """Generate a deterministic cache key from path + sorted query params."""
+    raw = f"{path}|{json.dumps(params, sort_keys=True)}"
+    return hashlib.md5(raw.encode()).hexdigest()
 
 
 class TMDbClientError(Exception):
@@ -26,6 +44,7 @@ class TMDbClient:
         self.region = region
         self.timeout = timeout
         self._genre_names: Dict[int, str] = {}
+        self._http_client: Optional[httpx.AsyncClient] = None
 
     def _require_api_key(self) -> str:
         if not self.api_key:
@@ -36,33 +55,58 @@ class TMDbClient:
             )
         return self.api_key
 
-    def _get(self, path: str, params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    def _get_http_client(self) -> httpx.AsyncClient:
+        """Lazy-create a shared async HTTP client for connection pooling."""
+        if self._http_client is None or self._http_client.is_closed:
+            self._http_client = httpx.AsyncClient(
+                base_url=TMDB_BASE_URL,
+                timeout=self.timeout,
+            )
+        return self._http_client
+
+    async def _get(
+        self,
+        path: str,
+        params: Optional[Dict[str, Any]] = None,
+        cache: Optional[TTLCache] = None,
+    ) -> Dict[str, Any]:
         query = dict(params or {})
         query["api_key"] = self._require_api_key()
         query.setdefault("language", self.language)
 
-        url = f"{TMDB_BASE_URL}{path}"
+        # Check cache first
+        if cache is not None:
+            key = _cache_key(path, query)
+            if key in cache:
+                return cache[key]
+
+        client = self._get_http_client()
         try:
-            response = requests.get(url, params=query, timeout=self.timeout)
+            response = await client.get(path, params=query)
             response.raise_for_status()
-        except requests.RequestException as exc:
+        except httpx.HTTPError as exc:
             raise TMDbClientError(f"TMDB request failed: {exc}") from exc
 
         payload = response.json()
         if isinstance(payload, dict) and payload.get("success") is False:
             message = payload.get("status_message") or payload.get("errors") or "Unknown TMDB error"
             raise TMDbClientError(str(message))
+
+        # Store in cache
+        if cache is not None:
+            cache[key] = payload
+
         return payload
 
-    def load_genre_names(self) -> Dict[int, str]:
+    async def load_genre_names(self) -> Dict[int, str]:
         if self._genre_names:
             return self._genre_names
-        data = self._get("/genre/movie/list")
+        data = await self._get("/genre/movie/list", cache=_details_cache)
         self._genre_names = {g["id"]: g["name"] for g in data.get("genres", [])}
         return self._genre_names
 
-    def genre_names(self, genre_ids: List[int]) -> List[str]:
-        names = self.load_genre_names()
+    async def genre_names(self, genre_ids: List[int]) -> List[str]:
+        names = await self.load_genre_names()
         return [names.get(gid, str(gid)) for gid in genre_ids]
 
     @staticmethod
@@ -71,7 +115,7 @@ class TMDbClient:
             return int(release_date[:4])
         return None
 
-    def summarize(self, movie: Dict[str, Any]) -> Dict[str, Any]:
+    async def summarize(self, movie: Dict[str, Any]) -> Dict[str, Any]:
         raw_genre_ids = movie.get("genre_ids") or []
         if raw_genre_ids:
             # Search/discover endpoints return genre_ids as [28, 12, ...]
@@ -81,7 +125,7 @@ class TMDbClient:
         else:
             genre_ids = []
 
-        genres = self.genre_names(genre_ids) if genre_ids else []
+        genres = await self.genre_names(genre_ids) if genre_ids else []
         if not genres and movie.get("genres"):
             genres = [g["name"] for g in movie["genres"]]
 
@@ -95,18 +139,20 @@ class TMDbClient:
             "backdrop_url": f"{TMDB_IMAGE_BASE}/w1280{movie['backdrop_path']}" if movie.get("backdrop_path") else None,
         }
 
-    def search_movies(self, query: str, limit: int = 5) -> List[Dict[str, Any]]:
-        data = self._get(
+    async def search_movies(self, query: str, limit: int = 5) -> List[Dict[str, Any]]:
+        data = await self._get(
             "/search/movie",
             {"query": query.strip(), "include_adult": "false", "page": 1},
+            cache=_search_cache,
         )
         results = data.get("results", [])[:limit]
-        return [self.summarize(movie) for movie in results]
+        return [await self.summarize(movie) for movie in results]
 
-    def get_movie_details(self, movie_id: int) -> Dict[str, Any]:
-        data = self._get(
+    async def get_movie_details(self, movie_id: int) -> Dict[str, Any]:
+        data = await self._get(
             f"/movie/{int(movie_id)}",
             {"append_to_response": "credits"},
+            cache=_details_cache,
         )
 
         director = next(
@@ -138,13 +184,13 @@ class TMDbClient:
             "backdrop_url": f"{TMDB_IMAGE_BASE}/w1280{data['backdrop_path']}" if data.get("backdrop_path") else None,
         }
 
-    def discover_by_genres(
+    async def discover_by_genres(
         self,
         genre_ids: List[int],
         limit: int = 5,
         region: Optional[str] = None,
     ) -> List[Dict[str, Any]]:
-        data = self._get(
+        data = await self._get(
             "/discover/movie",
             {
                 "with_genres": ",".join(str(g) for g in genre_ids),
@@ -154,17 +200,18 @@ class TMDbClient:
                 "region": (region or self.region).upper(),
                 "page": 1,
             },
+            cache=_trending_cache,
         )
-        return [self.summarize(movie) for movie in data.get("results", [])[:limit]]
+        return [await self.summarize(movie) for movie in data.get("results", [])[:limit]]
 
-    def similar_movies(self, movie_id: int, limit: int = 5) -> Dict[str, Any]:
-        source = self.get_movie_details(movie_id)
-        data = self._get(f"/movie/{int(movie_id)}/similar", {"page": 1})
-        similar = [self.summarize(movie) for movie in data.get("results", [])[:limit]]
+    async def similar_movies(self, movie_id: int, limit: int = 5) -> Dict[str, Any]:
+        source = await self.get_movie_details(movie_id)
+        data = await self._get(f"/movie/{int(movie_id)}/similar", {"page": 1}, cache=_search_cache)
+        similar = [await self.summarize(movie) for movie in data.get("results", [])[:limit]]
         return {"source": source["title"], "movies": similar}
 
-    def watch_providers(self, movie_id: int, country: str = DEFAULT_REGION) -> Dict[str, Any]:
-        data = self._get(f"/movie/{int(movie_id)}/watch/providers")
+    async def watch_providers(self, movie_id: int, country: str = DEFAULT_REGION) -> Dict[str, Any]:
+        data = await self._get(f"/movie/{int(movie_id)}/watch/providers", cache=_providers_cache)
         country_key = country.upper()
         country_data = data.get("results", {}).get(country_key, {})
         providers: Dict[str, List[str]] = {
@@ -190,7 +237,7 @@ class TMDbClient:
             "available_on": available,
         }
 
-    def trending_movies(
+    async def trending_movies(
         self,
         region: str = DEFAULT_REGION,
         genre: Optional[str] = None,
@@ -207,16 +254,17 @@ class TMDbClient:
                 raise TMDbClientError(
                     f"Unknown genre '{genre}'. Examples: Sci-Fi, Action, Romance, Horror."
                 )
-            return self.discover_by_genres([genre_id], limit=limit, region=region)
+            return await self.discover_by_genres([genre_id], limit=limit, region=region)
 
-        data = self._get(
+        data = await self._get(
             f"/trending/movie/{period_key}",
             {"region": region.upper()},
+            cache=_trending_cache,
         )
-        movies = [self.summarize(movie) for movie in data.get("results", [])[: limit * 2]]
+        movies = [await self.summarize(movie) for movie in data.get("results", [])[: limit * 2]]
 
         if region.upper() != "US":
-            regional = self._get(
+            regional = await self._get(
                 "/discover/movie",
                 {
                     "sort_by": "popularity.desc",
@@ -224,18 +272,20 @@ class TMDbClient:
                     "include_adult": "false",
                     "page": 1,
                 },
+                cache=_trending_cache,
             )
-            regional_summaries = [self.summarize(m) for m in regional.get("results", [])[:limit]]
+            regional_summaries = [await self.summarize(m) for m in regional.get("results", [])[:limit]]
             if regional_summaries:
                 return regional_summaries
 
         return movies[:limit]
 
-    def search_person(self, name: str, limit: int = 5) -> List[Dict[str, Any]]:
+    async def search_person(self, name: str, limit: int = 5) -> List[Dict[str, Any]]:
         """Search for a person (actor/director) on TMDB by name."""
-        data = self._get(
+        data = await self._get(
             "/search/person",
             {"query": name.strip(), "include_adult": "false", "page": 1},
+            cache=_search_cache,
         )
         results = data.get("results", [])[:limit]
         return [
@@ -251,7 +301,7 @@ class TMDbClient:
             for person in results
         ]
 
-    def get_movies_by_person(
+    async def get_movies_by_person(
         self, person_id: int, role: str = "director", limit: int = 5
     ) -> List[Dict[str, Any]]:
         """Get movies for a person by role (director or actor)."""
@@ -259,9 +309,12 @@ class TMDbClient:
         if role_lower not in {"director", "actor"}:
             raise TMDbClientError(f"role must be 'director' or 'actor', got '{role}'")
 
-        data = self._get(f"/person/{int(person_id)}", {"append_to_response": "movie_credits"})
+        data = await self._get(
+            f"/person/{int(person_id)}",
+            {"append_to_response": "movie_credits"},
+            cache=_details_cache,
+        )
 
-        person_name = data.get("name", "Unknown")
         movie_credits = data.get("movie_credits", {})
 
         if role_lower == "director":
@@ -277,24 +330,25 @@ class TMDbClient:
             cast = movie_credits.get("cast", [])
             movie_ids = [m["id"] for m in cast if m.get("id")]
 
-        # Fetch details for each movie
-        movies = []
-        for movie_id in movie_ids[:limit]:
+        # Fetch details for each movie in parallel
+        async def _safe_detail(mid: int) -> Optional[Dict[str, Any]]:
             try:
-                movie_detail = self.get_movie_details(movie_id)
-                movies.append(movie_detail)
+                return await self.get_movie_details(mid)
             except TMDbClientError:
-                # Skip movies that fail to load
-                continue
+                return None
 
-        return movies
+        results = await asyncio.gather(*[_safe_detail(mid) for mid in movie_ids[:limit]])
+        return [r for r in results if r is not None]
 
 
 _client: Optional[TMDbClient] = None
 
 
-def get_client() -> TMDbClient:
+def get_client(language: Optional[str] = None) -> TMDbClient:
+    """Get or create a singleton TMDbClient. Pass language to override locale."""
     global _client
     if _client is None:
-        _client = TMDbClient()
+        _client = TMDbClient(language=language or DEFAULT_LANGUAGE)
+    elif language and _client.language != language:
+        _client = TMDbClient(language=language)
     return _client

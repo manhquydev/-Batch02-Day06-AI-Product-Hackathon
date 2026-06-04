@@ -1,4 +1,5 @@
 import ast
+import inspect
 import json
 import re
 from typing import Any, Callable, Dict, List, Tuple
@@ -95,14 +96,19 @@ def parse_action(action_line: str) -> Tuple[str, List[Any]]:
     return name, [args_blob.strip("\"'")]
 
 
-def execute_tool(tool_name: str, args: List[Any]) -> str:
+async def execute_tool(tool_name: str, args: List[Any]) -> str:
+    """Execute a registered tool by name. Supports both sync and async tool functions."""
     fn = TOOL_MAP.get(tool_name)
     if not fn:
         available = ", ".join(TOOL_MAP.keys())
         return json.dumps({"error": f"Tool {tool_name} not found. Available: {available}"})
 
     try:
-        return fn(*args)
+        result = fn(*args)
+        # Await if the tool function is a coroutine
+        if inspect.isawaitable(result):
+            result = await result
+        return result
     except TypeError as exc:
         return json.dumps({"error": f"Invalid arguments for {tool_name}: {exc}"})
     except Exception as exc:
