@@ -59,6 +59,7 @@ class ChatRequest(BaseModel):
     provider: str = "openai"
     model: str = "gpt-4o-mini"
     max_steps: int = Field(default=5, ge=2, le=8)
+    session_id: Optional[str] = None
 
 
 class CompareRequest(BaseModel):
@@ -108,12 +109,35 @@ def list_modes():
     return {"modes": list(VALID_MODES)}
 
 
+# In-memory chat session store (session_id -> list of message dicts)
+chat_sessions: Dict[str, List[Dict[str, str]]] = {}
+
+
 @app.post("/api/chat")
 async def chat(body: ChatRequest):
     if body.mode not in VALID_MODES:
         raise HTTPException(status_code=400, detail=f"Invalid mode. Choose one of: {VALID_MODES}")
     try:
-        result = await run_query(body.mode, body.message, body.provider, body.model, body.max_steps)
+        history = None
+        if body.session_id:
+            if body.session_id not in chat_sessions:
+                chat_sessions[body.session_id] = []
+            # Keep last 10 messages (5 turns) to prevent context token overflow
+            history = chat_sessions[body.session_id][-10:]
+
+        result = await run_query(
+            body.mode,
+            body.message,
+            body.provider,
+            body.model,
+            body.max_steps,
+            history=history,
+        )
+
+        if body.session_id:
+            chat_sessions[body.session_id].append({"role": "User", "content": body.message})
+            chat_sessions[body.session_id].append({"role": "Agent", "content": result.get("answer", "")})
+
         return _enrich_result(result)
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc

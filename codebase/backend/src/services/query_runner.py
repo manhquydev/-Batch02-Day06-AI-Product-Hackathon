@@ -1,7 +1,7 @@
 """Run ReAct agent queries with async execution and dynamic language detection."""
 
 import re
-from typing import Any, Dict
+from typing import Any, Dict, List, Optional
 
 from src.agent.agent import ReActAgent
 from src.core.domain_guard import build_off_topic_result, is_clear_off_topic
@@ -33,7 +33,14 @@ def detect_language(text: str) -> str:
     return "en-US"
 
 
-async def run_query(mode: str, user_input: str, provider: str, model: str, max_steps: int) -> Dict[str, Any]:
+async def run_query(
+    mode: str,
+    user_input: str,
+    provider: str,
+    model: str,
+    max_steps: int,
+    history: Optional[List[Dict[str, str]]] = None,
+) -> Dict[str, Any]:
     if is_clear_off_topic(user_input):
         return build_off_topic_result(user_input)
 
@@ -42,4 +49,4 @@ async def run_query(mode: str, user_input: str, provider: str, model: str, max_s
     get_client(language=language)
 
     llm = get_llm_provider(provider=provider, model=model)
-    return await ReActAgent(llm=llm, tools=TOOL_SPECS, max_steps=max_steps).run(user_input)
+    return await ReActAgent(llm=llm, tools=TOOL_SPECS, max_steps=max_steps).run(user_input, history=history)

@@ -89,11 +89,19 @@ Additional rules:
         logger.log_event("TOOL_CALL", {"tool": name, "args": args, "observation_preview": observation[:200]})
         return observation
 
-    async def run(self, user_input: str) -> Dict[str, Any]:
+    async def run(self, user_input: str, history: Optional[List[Dict[str, str]]] = None) -> Dict[str, Any]:
         logger.log_event("AGENT_START", {"input": user_input, "model": self.llm.model_name})
 
         trace: List[Dict[str, Any]] = []
-        scratchpad = f"Question: {user_input}\n"
+        scratchpad = ""
+        if history:
+            scratchpad += "Previous conversation history:\n"
+            for msg in history:
+                role = msg.get("role", "User")
+                content = msg.get("content", "")
+                scratchpad += f"{role}: {content}\n"
+            scratchpad += "\n"
+        scratchpad += f"Question: {user_input}\n"
         total_usage = {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
         total_latency = 0
         final_answer: Optional[str] = None
