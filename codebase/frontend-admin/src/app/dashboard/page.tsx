@@ -3,10 +3,11 @@ import { useEffect, useRef, useState } from "react";
 import { fetchModels } from "@/lib/api";
 import { SingleTab } from "@/components/single-tab";
 import { CompareTab } from "@/components/compare-tab";
+import { UsersTab } from "@/components/users-tab";
 import { HistorySidebar, type HistoryEntry } from "@/components/history-sidebar";
 
 const MODES = ["ReAct Agent"] as const;
-type Tab = "single" | "compare";
+type Tab = "single" | "compare" | "users";
 
 type SessionEntry = { latency: number; model: string };
 
@@ -53,7 +54,7 @@ export default function DashboardPage() {
         )}
       </header>
 
-      <div className="border-b border-zinc-800 px-6 py-3 flex flex-wrap items-center gap-6">
+      {tab !== "users" && <div className="border-b border-zinc-800 px-6 py-3 flex flex-wrap items-center gap-6">
         <label className="flex items-center gap-2">
           <span className="text-xs text-zinc-400 whitespace-nowrap">Mode</span>
           <select
@@ -75,10 +76,10 @@ export default function DashboardPage() {
             className="w-28 accent-blue-500"
           />
         </label>
-      </div>
+      </div>}
 
       <div className="border-b border-zinc-800 px-6 flex gap-1">
-        {(["single", "compare"] as Tab[]).map((t) => (
+        {(["single", "compare", "users"] as Tab[]).map((t) => (
           <button
             key={t}
             className={`py-3 px-1 mr-4 text-sm font-medium border-b-2 capitalize transition-colors ${
@@ -88,7 +89,7 @@ export default function DashboardPage() {
             }`}
             onClick={() => setTab(t)}
           >
-            {t === "single" ? "Single Model" : "Compare Models"}
+            {t === "single" ? "Single Model" : t === "compare" ? "Compare Models" : "Users"}
           </button>
         ))}
       </div>
@@ -120,8 +121,10 @@ export default function DashboardPage() {
       <main className="flex-1 p-6 overflow-auto">
         {tab === "single" ? (
           <SingleTab mode={mode} models={models} maxSteps={maxSteps} onResult={handleResult} />
-        ) : (
+        ) : tab === "compare" ? (
           <CompareTab mode={mode} models={models} maxSteps={maxSteps} onResult={handleResult} />
+        ) : (
+          <UsersTab />
         )}
       </main>
 
