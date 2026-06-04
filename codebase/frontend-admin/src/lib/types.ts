@@ -37,3 +37,24 @@ export type CompareResult = {
 export type CompareResponse = {
   results: Record<string, CompareResult>;
 };
+
+export type AdminSessionSummary = {
+  id: string;
+  turn_count: number;
+  has_summary: boolean;
+  rejected_count: number;
+};
+
+export type AdminSessionTurn = {
+  user: string;
+  assistant: string;
+};
+
+export type AdminSessionDetail = {
+  id: string;
+  turn_count: number;
+  has_summary: boolean;
+  summary: string | null;
+  rejected_movie_ids: number[];
+  turns: AdminSessionTurn[];
+};
