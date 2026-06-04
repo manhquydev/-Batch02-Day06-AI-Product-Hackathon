@@ -1,6 +1,6 @@
 import time
-from typing import Dict, Any, Optional, Generator
-from openai import OpenAI
+from typing import Dict, Any, Optional, AsyncGenerator
+from openai import AsyncOpenAI
 from src.core.llm_provider import LLMProvider
 
 DEEPSEEK_BASE_URL = "https://api.deepseek.com"
@@ -14,9 +14,9 @@ class DeepSeekProvider(LLMProvider):
 
     def __init__(self, model_name: str = "deepseek-chat", api_key: Optional[str] = None):
         super().__init__(model_name, api_key)
-        self.client = OpenAI(api_key=self.api_key, base_url=DEEPSEEK_BASE_URL)
+        self.client = AsyncOpenAI(api_key=self.api_key, base_url=DEEPSEEK_BASE_URL)
 
-    def generate(self, prompt: str, system_prompt: Optional[str] = None) -> Dict[str, Any]:
+    async def generate(self, prompt: str, system_prompt: Optional[str] = None) -> Dict[str, Any]:
         start_time = time.time()
 
         messages = []
@@ -24,7 +24,7 @@ class DeepSeekProvider(LLMProvider):
             messages.append({"role": "system", "content": system_prompt})
         messages.append({"role": "user", "content": prompt})
 
-        response = self.client.chat.completions.create(
+        response = await self.client.chat.completions.create(
             model=self.model_name,
             messages=messages,
         )
@@ -44,19 +44,19 @@ class DeepSeekProvider(LLMProvider):
             "provider": "deepseek",
         }
 
-    def stream(self, prompt: str, system_prompt: Optional[str] = None) -> Generator[str, None, None]:
+    async def stream(self, prompt: str, system_prompt: Optional[str] = None) -> AsyncGenerator[str, None]:
         messages = []
         if system_prompt:
             messages.append({"role": "system", "content": system_prompt})
         messages.append({"role": "user", "content": prompt})
 
-        stream = self.client.chat.completions.create(
+        stream = await self.client.chat.completions.create(
             model=self.model_name,
             messages=messages,
             stream=True,
         )
 
-        for chunk in stream:
+        async for chunk in stream:
             delta = chunk.choices[0].delta.content
             if delta:
                 yield delta

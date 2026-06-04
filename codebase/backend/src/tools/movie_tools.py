@@ -1,3 +1,6 @@
+"""Async movie tool wrappers for the ReAct agent — all functions are async."""
+
+import asyncio
 import json
 from typing import Any, Dict, List, Optional
 
@@ -16,9 +19,10 @@ def _json_error(message: str, **extra: Any) -> str:
 
 
 def _handle_errors(fn):
-    def wrapper(*args, **kwargs):
+    """Async-aware decorator that catches TMDbClientError and ValueError."""
+    async def wrapper(*args, **kwargs):
         try:
-            return fn(*args, **kwargs)
+            return await fn(*args, **kwargs)
         except TMDbClientError as exc:
             return _json_error(str(exc))
         except ValueError as exc:
@@ -60,27 +64,27 @@ def _pros_cons(detail: Dict[str, Any]) -> Dict[str, List[str]]:
 
 
 @_handle_errors
-def search_movies(query: str, limit: int = 5) -> str:
+async def search_movies(query: str, limit: int = 5) -> str:
     """Search movies on TMDB by title or keyword."""
     if not query.strip():
         return _json_error("query must not be empty")
 
     limit = max(1, min(int(limit), 10))
     client = get_client()
-    movies = client.search_movies(query, limit=limit)
+    movies = await client.search_movies(query, limit=limit)
     return _json_ok({"query": query, "source": "TMDB", "count": len(movies), "movies": movies})
 
 
 @_handle_errors
-def get_movie_details(movie_id: int) -> str:
+async def get_movie_details(movie_id: int) -> str:
     """Return TMDB details for one movie_id."""
-    detail = get_client().get_movie_details(int(movie_id))
+    detail = await get_client().get_movie_details(int(movie_id))
     detail["source"] = "TMDB"
     return _json_ok(detail)
 
 
 @_handle_errors
-def filter_by_mood(mood: str, limit: int = 5) -> str:
+async def filter_by_mood(mood: str, limit: int = 5) -> str:
     """Discover popular TMDB movies matching a mood via genre mapping."""
     mood_key = mood.strip().lower()
     if mood_key not in ALLOWED_MOODS:
@@ -89,7 +93,7 @@ def filter_by_mood(mood: str, limit: int = 5) -> str:
     limit = max(1, min(int(limit), 10))
     genre_ids = MOOD_GENRE_IDS[mood_key]
     client = get_client()
-    movies = client.discover_by_genres(genre_ids, limit=limit)
+    movies = await client.discover_by_genres(genre_ids, limit=limit)
     return _json_ok(
         {
             "mood": mood_key,
@@ -102,34 +106,34 @@ def filter_by_mood(mood: str, limit: int = 5) -> str:
 
 
 @_handle_errors
-def get_similar_movies(movie_id: int, limit: int = 5) -> str:
+async def get_similar_movies(movie_id: int, limit: int = 5) -> str:
     """Suggest TMDB similar movies for a movie_id."""
     limit = max(1, min(int(limit), 10))
-    payload = get_client().similar_movies(int(movie_id), limit=limit)
+    payload = await get_client().similar_movies(int(movie_id), limit=limit)
     payload["source"] = "TMDB"
     payload["count"] = len(payload["movies"])
     return _json_ok(payload)
 
 
 @_handle_errors
-def check_streaming_availability(movie_id: int, country: str = "VN") -> str:
+async def check_streaming_availability(movie_id: int, country: str = "VN") -> str:
     """Check TMDB watch/providers for streaming/rent/buy in a country."""
     client = get_client()
-    detail = client.get_movie_details(int(movie_id))
-    providers = client.watch_providers(int(movie_id), country=country)
+    detail = await client.get_movie_details(int(movie_id))
+    providers = await client.watch_providers(int(movie_id), country=country)
     providers["title"] = detail["title"]
     providers["source"] = "TMDB"
     return _json_ok(providers)
 
 
 @_handle_errors
-def get_trending_movies(
+async def get_trending_movies(
     region: str = "VN",
     genre: Optional[str] = None,
     period: str = "week",
 ) -> str:
     """Fetch trending or popular TMDB movies, optionally filtered by genre."""
-    movies = get_client().trending_movies(
+    movies = await get_client().trending_movies(
         region=region,
         genre=genre,
         period=period,
@@ -148,17 +152,19 @@ def get_trending_movies(
 
 
 @_handle_errors
-def compare_movies(movie_ids: List[int]) -> str:
-    """Compare 2-3 TMDB movies using live ratings and metadata."""
+async def compare_movies(movie_ids: List[int]) -> str:
+    """Compare 2-3 TMDB movies using live ratings and metadata (parallel fetch)."""
     if not movie_ids or len(movie_ids) < 2:
         return _json_error("provide 2 or 3 TMDB movie_ids")
 
     movie_ids = [int(mid) for mid in movie_ids[:3]]
     client = get_client()
-    rows = []
 
-    for mid in movie_ids:
-        detail = client.get_movie_details(mid)
+    # Parallel fetching of movie details
+    details = await asyncio.gather(*[client.get_movie_details(mid) for mid in movie_ids])
+
+    rows = []
+    for detail in details:
         extras = _pros_cons(detail)
         rows.append(
             {
@@ -178,14 +184,14 @@ def compare_movies(movie_ids: List[int]) -> str:
 
 
 @_handle_errors
-def search_person(name: str, limit: int = 5) -> str:
+async def search_person(name: str, limit: int = 5) -> str:
     """Search for a person (actor/director) on TMDB by name. Returns person_id, name, and profile."""
     if not name.strip():
         return _json_error("name must not be empty")
 
     limit = max(1, min(int(limit), 10))
     client = get_client()
-    people = client.search_person(name.strip(), limit=limit)
+    people = await client.search_person(name.strip(), limit=limit)
     return _json_ok(
         {
             "query": name,
@@ -197,7 +203,7 @@ def search_person(name: str, limit: int = 5) -> str:
 
 
 @_handle_errors
-def get_movies_by_person(person_id: int, role: str = "director", limit: int = 5) -> str:
+async def get_movies_by_person(person_id: int, role: str = "director", limit: int = 5) -> str:
     """Get list of movies by a person (director or actor). Args: person_id (int), role ('director'|'actor'), limit (int)."""
     role_lower = role.strip().lower()
     if role_lower not in {"director", "actor"}:
@@ -205,7 +211,7 @@ def get_movies_by_person(person_id: int, role: str = "director", limit: int = 5)
 
     limit = max(1, min(int(limit), 10))
     client = get_client()
-    movies = client.get_movies_by_person(int(person_id), role=role_lower, limit=limit)
+    movies = await client.get_movies_by_person(int(person_id), role=role_lower, limit=limit)
     return _json_ok(
         {
             "person_id": int(person_id),
@@ -215,4 +221,3 @@ def get_movies_by_person(person_id: int, role: str = "director", limit: int = 5)
             "movies": movies,
         }
     )
-

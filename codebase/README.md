@@ -11,6 +11,35 @@ codebase/
 └── frontend-admin/   Next.js — Admin UI (trace viewer + metrics dashboard)
 ```
 
+## Chạy bằng Docker (cả 3 service)
+
+**Yêu cầu:** Docker Desktop hoặc Docker Engine + Docker Compose v2.
+
+```bash
+cd codebase
+cp backend/.env.example backend/.env    # bắt buộc: OPENAI_API_KEY, TMDB_API_KEY
+# tùy chọn: cp .env.docker.example .env
+
+docker compose up --build
+```
+
+| Service | URL |
+|---------|-----|
+| Guest UI (`frontend-user`) | http://localhost:3000 |
+| Admin UI (`frontend-admin`) | http://localhost:3001 |
+| Backend API + Swagger | http://localhost:8000/docs |
+
+Dừng stack: `docker compose down`
+
+Rebuild sau khi đổi code frontend (biến `NEXT_PUBLIC_*` bake lúc build):
+
+```bash
+docker compose build --no-cache frontend-user frontend-admin
+docker compose up -d
+```
+
+---
+
 ## Cách chạy local
 
 ### Yêu cầu
