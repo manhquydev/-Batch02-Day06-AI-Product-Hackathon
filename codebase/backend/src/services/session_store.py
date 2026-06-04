@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from threading import Lock
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Set
 import uuid
 
 TURN_LIMIT = 10
@@ -22,6 +22,7 @@ class ChatSession:
     id: str
     turns: List[ChatTurn] = field(default_factory=list)
     summary: Optional[str] = None
+    rejected_movie_ids: Set[int] = field(default_factory=set)
 
     @property
     def turn_count(self) -> int:

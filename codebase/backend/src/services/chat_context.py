@@ -18,19 +18,24 @@ def format_turns(turns: List[ChatTurn]) -> str:
 
 def build_context_prefix(session: ChatSession) -> str:
     """Context from completed turns (not including the new user message)."""
-    if session.turn_count == 0:
-        return ""
-
-    if session.turn_count < TURN_LIMIT:
-        block = format_turns(session.turns)
-        return f"[Ngữ cảnh cuộc trò chuyện]\n{block}" if block else ""
-
     parts = []
-    if session.summary:
-        parts.append(f"[Tóm tắt các lượt trước]\n{session.summary}")
-    recent = session.turns[-RECENT_TURNS_AFTER_SUMMARY:]
-    if recent:
-        parts.append(f"[Vài lượt gần nhất]\n{format_turns(recent)}")
+
+    if session.turn_count > 0:
+        if session.turn_count < TURN_LIMIT:
+            block = format_turns(session.turns)
+            if block:
+                parts.append(f"[Ngữ cảnh cuộc trò chuyện]\n{block}")
+        else:
+            if session.summary:
+                parts.append(f"[Tóm tắt các lượt trước]\n{session.summary}")
+            recent = session.turns[-RECENT_TURNS_AFTER_SUMMARY:]
+            if recent:
+                parts.append(f"[Vài lượt gần nhất]\n{format_turns(recent)}")
+
+    if session.rejected_movie_ids:
+        ids_str = ", ".join(str(mid) for mid in sorted(session.rejected_movie_ids))
+        parts.append(f"[Phim đã từ chối - KHÔNG GỢI Ý LẠI]\nID TMDB: {ids_str}")
+
     return "\n\n".join(parts)
 
 

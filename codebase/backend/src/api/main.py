@@ -71,6 +71,11 @@ class ChatRequest(BaseModel):
     provider: str = "openai"
     model: str = "gpt-4o-mini"
     max_steps: int = Field(default=5, ge=2, le=8)
+    rejected_movie_ids: List[int] = Field(
+        default_factory=list,
+        max_length=50,
+        description="TMDB IDs của phim người dùng từ chối; sẽ không xuất hiện trong gợi ý tiếp theo.",
+    )
 
 
 class SummaryRequest(BaseModel):
@@ -164,6 +169,8 @@ async def chat(body: ChatRequest):
 
         if session_id:
             session = session_store.get_or_create(session_id)
+            if body.rejected_movie_ids:
+                session.rejected_movie_ids.update(body.rejected_movie_ids)
             turn_count = session.turn_count
             agent_input, latest, summarized = await prepare_session_turn(
                 session,
