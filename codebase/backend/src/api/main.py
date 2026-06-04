@@ -20,13 +20,32 @@ if str(BACKEND_ROOT) not in sys.path:
 
 load_dotenv(BACKEND_ROOT / ".env")
 
-from src.services.chat_context import prepare_session_turn
+from src.core.agent_config import DEFAULT_MAX_STEPS, MAX_MAX_STEPS
+from src.services.chat_context import is_follow_up_message, prepare_session_turn
 from src.services.comparison import build_model_options, run_parallel_comparison
+from src.services.follow_up_suggestions import generate_follow_up_suggestions
 from src.services.query_runner import EXAMPLE_PROMPTS, VALID_MODES, run_query
 from src.services.session_store import ChatTurn, store as session_store
 from src.services.summarizer import summarize_messages, summarize_turns
 from src.tools.registry import TOOL_SPECS
+from src.tools.session_context import (
+    clear_session_exclusions,
+    get_focus_movie_id,
+    get_requested_movie_limit,
+    is_movie_detail_mode,
+    is_movie_review_mode,
+    set_movie_detail_focus,
+    set_movie_review_focus,
+    set_requested_movie_limit,
+    set_session_exclusions,
+)
+from src.utils.request_intent import (
+    extract_target_movie_title,
+    is_movie_detail_request,
+    is_movie_review_request,
+)
 from src.utils.movies import extract_movies_from_trace
+from src.utils.request_limits import clamp_movie_count, parse_requested_movie_count
 
 app = FastAPI(
     title="Movie ReAct Agent API",
@@ -34,7 +53,6 @@ app = FastAPI(
     version="1.0.0",
 )
 
-# Configure allowed origins for both User and Admin Frontends
 FRONTEND_USER_URL = os.getenv("FRONTEND_USER_URL", "http://localhost:3000")
 FRONTEND_ADMIN_URL = os.getenv("FRONTEND_ADMIN_URL", "http://localhost:3001")
 
@@ -70,7 +88,12 @@ class ChatRequest(BaseModel):
     mode: ModeType = "ReAct Agent"
     provider: str = "openai"
     model: str = "gpt-4o-mini"
-    max_steps: int = Field(default=7, ge=2, le=8)
+    max_steps: int = Field(
+        default=DEFAULT_MAX_STEPS,
+        ge=2,
+        le=MAX_MAX_STEPS,
+        description=f"Số vòng Thought/Action tối đa (mặc định {DEFAULT_MAX_STEPS}, tối đa {MAX_MAX_STEPS}).",
+    )
     rejected_movie_ids: List[int] = Field(
         default_factory=list,
         max_length=50,
@@ -92,7 +115,7 @@ class CompareRequest(BaseModel):
     query: str = Field(..., min_length=1)
     models: List[str] = Field(..., min_length=2, max_length=4, description="provider/model keys")
     mode: ModeType = "ReAct Agent"
-    max_steps: int = Field(default=7, ge=2, le=8)
+    max_steps: int = Field(default=DEFAULT_MAX_STEPS, ge=2, le=MAX_MAX_STEPS)
 
 
 def _serialize_tools() -> List[Dict[str, Any]]:
@@ -103,7 +126,45 @@ def _serialize_tools() -> List[Dict[str, Any]]:
 
 
 def _enrich_result(result: Dict[str, Any]) -> Dict[str, Any]:
-    return {**result, "movies": extract_movies_from_trace(result.get("trace"))}
+    movies = extract_movies_from_trace(result.get("trace"))
+    cap = get_requested_movie_limit()
+    if is_movie_detail_mode() or is_movie_review_mode():
+        focus_id = get_focus_movie_id()
+        if focus_id is not None:
+            focused = [m for m in movies if m.get("id") == focus_id]
+            movies = focused if focused else movies[:1]
+        else:
+            movies = movies[:1]
+        cap = 1
+    elif len(movies) > cap:
+        movies = movies[:cap]
+    return {
+        **result,
+        "movies": movies,
+        "requested_movie_count": cap,
+    }
+
+
+async def _attach_follow_ups(
+    enriched: Dict[str, Any],
+    *,
+    user_message: str,
+    provider: str,
+    model: str,
+) -> Dict[str, Any]:
+    if enriched.get("mode") == "domain_guard":
+        from src.services.follow_up_suggestions import EXPLORE_PROMPTS
+
+        enriched["follow_ups"] = EXPLORE_PROMPTS[:4]
+        return enriched
+    enriched["follow_ups"] = await generate_follow_up_suggestions(
+        user_message=user_message,
+        answer=enriched.get("answer") or "",
+        movies=enriched.get("movies") or [],
+        provider=provider,
+        model=model,
+    )
+    return enriched
 
 
 @app.get("/health")
@@ -112,6 +173,8 @@ def health():
         "status": "ok",
         "openai_configured": bool(os.getenv("OPENAI_API_KEY")),
         "tmdb_configured": bool(os.getenv("TMDB_API_KEY")),
+        "agent_default_max_steps": DEFAULT_MAX_STEPS,
+        "agent_max_max_steps": MAX_MAX_STEPS,
     }
 
 
@@ -163,16 +226,48 @@ async def chat(body: ChatRequest):
         raise HTTPException(status_code=400, detail=f"Invalid mode. Choose one of: {VALID_MODES}")
     try:
         contextual_input = None
+        latest_user = body.message
         session_id = body.session_id
         turn_count = 0
         summarized = False
+        session = None
+
+        review_request = is_movie_review_request(body.message)
+        detail_request = is_movie_detail_request(body.message) and not review_request
+
+        if review_request or detail_request:
+            set_requested_movie_limit(1)
+        else:
+            set_requested_movie_limit(
+                clamp_movie_count(parse_requested_movie_count(body.message))
+            )
 
         if session_id:
             session = session_store.get_or_create(session_id)
             if body.rejected_movie_ids:
                 session.rejected_movie_ids.update(body.rejected_movie_ids)
-            turn_count = session.turn_count
-            agent_input, latest, summarized = await prepare_session_turn(
+
+            title_q = extract_target_movie_title(body.message)
+            focus = session.find_movie_by_title(title_q) if title_q else None
+
+            if review_request:
+                if focus:
+                    set_movie_review_focus(
+                        str(focus.get("title") or title_q or ""),
+                        focus.get("id"),
+                    )
+                elif title_q:
+                    set_movie_review_focus(title_q)
+            elif detail_request:
+                if focus:
+                    set_movie_detail_focus(
+                        str(focus.get("title") or title_q or ""),
+                        focus.get("id"),
+                    )
+                elif title_q:
+                    set_movie_detail_focus(title_q)
+
+            agent_input, latest_user, summarized = await prepare_session_turn(
                 session,
                 body.message,
                 body.provider,
@@ -180,30 +275,67 @@ async def chat(body: ChatRequest):
                 summarize_turns,
             )
             contextual_input = agent_input
-            result = await run_query(
-                body.mode,
-                latest,
-                body.provider,
-                body.model,
-                body.max_steps,
-                contextual_input=contextual_input,
-            )
-            answer = result.get("answer") or ""
-            turn_count = session_store.append_turn(
-                session_id, ChatTurn(user=body.message, assistant=answer)
-            )
-        else:
-            result = await run_query(
-                body.mode, body.message, body.provider, body.model, body.max_steps
-            )
+
+            exclude_ids = session.suggested_movie_ids()
+            if review_request or detail_request:
+                focus_id = focus.get("id") if focus else None
+                if focus_id is not None:
+                    exclude_ids = [mid for mid in exclude_ids if mid != focus_id]
+            if exclude_ids and not review_request and not detail_request:
+                start_page = 1 + session.turn_count if is_follow_up_message(body.message) else 1
+                set_session_exclusions(exclude_ids, discover_start_page=start_page)
+            elif exclude_ids and (review_request or detail_request):
+                set_session_exclusions(exclude_ids, discover_start_page=1)
+        elif review_request or detail_request:
+            title_q = extract_target_movie_title(body.message)
+            if title_q:
+                if review_request:
+                    set_movie_review_focus(title_q)
+                else:
+                    set_movie_detail_focus(title_q)
+
+        try:
+            if session_id:
+                result = await run_query(
+                    body.mode,
+                    latest_user,
+                    body.provider,
+                    body.model,
+                    body.max_steps,
+                    contextual_input=contextual_input,
+                )
+            else:
+                result = await run_query(
+                    body.mode, body.message, body.provider, body.model, body.max_steps
+                )
+        finally:
+            clear_session_exclusions()
 
         enriched = _enrich_result(result)
+        enriched = await _attach_follow_ups(
+            enriched,
+            user_message=body.message,
+            provider=body.provider,
+            model=body.model,
+        )
+
+        if session_id and session is not None:
+            turn_count = session_store.append_turn(
+                session_id,
+                ChatTurn(
+                    user=body.message,
+                    assistant=result.get("answer") or "",
+                    movies=enriched.get("movies") or [],
+                ),
+            )
+
         if session_id:
             enriched["session_id"] = session_id
             enriched["turn_count"] = turn_count
             enriched["summarized"] = summarized
         return enriched
     except Exception as exc:
+        clear_session_exclusions()
         raise HTTPException(status_code=500, detail="Internal server error") from exc
 
 

@@ -15,9 +15,11 @@ SUMMARY_SYSTEM = (
 
 
 def _format_turns(turns: List[ChatTurn]) -> str:
+    from src.services.chat_context import format_turn
+
     blocks = []
     for i, t in enumerate(turns, 1):
-        blocks.append(f"Lượt {i} — Người dùng: {t.user}\nTrợ lý: {t.assistant}")
+        blocks.append(f"Lượt {i} —\n{format_turn(t)}")
     return "\n\n".join(blocks)
 
 

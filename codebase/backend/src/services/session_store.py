@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from threading import Lock
-from typing import Dict, List, Optional, Set
+from typing import Any, Dict, List, Optional, Set
 import uuid
 
 TURN_LIMIT = 10
@@ -15,6 +15,7 @@ RECENT_TURNS_AFTER_SUMMARY = 4
 class ChatTurn:
     user: str
     assistant: str
+    movies: List[Dict[str, Any]] = field(default_factory=list)
 
 
 @dataclass
@@ -27,6 +28,36 @@ class ChatSession:
     @property
     def turn_count(self) -> int:
         return len(self.turns)
+
+    def suggested_movie_ids(self) -> List[int]:
+        seen: set[int] = set()
+        ordered: List[int] = []
+        for turn in self.turns:
+            for movie in turn.movies:
+                mid = movie.get("id")
+                if isinstance(mid, int) and mid not in seen:
+                    seen.add(mid)
+                    ordered.append(mid)
+        return ordered
+
+    def find_movie_by_title(self, title_query: str) -> Optional[Dict[str, Any]]:
+        """Match a film from prior turns (detail/review follow-ups)."""
+        from src.utils.request_limits import _normalize
+
+        q = _normalize(title_query.strip())
+        if not q:
+            return None
+
+        for turn in reversed(self.turns):
+            for movie in turn.movies:
+                title = _normalize(str(movie.get("title") or ""))
+                if not title:
+                    continue
+                if q == title or q in title or title in q:
+                    return movie
+                if len(q) >= 2 and (title.startswith(q) or q.startswith(title)):
+                    return movie
+        return None
 
 
 class SessionStore:

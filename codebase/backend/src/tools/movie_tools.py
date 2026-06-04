@@ -144,13 +144,20 @@ async def get_reviews(movie_id: int, limit: int = 2) -> str:
     client = get_client()
     detail = await client.get_movie_details(int(movie_id))
     reviews = await client.get_reviews(int(movie_id), limit=limit)
-    return _json_ok({
+    payload: Dict[str, Any] = {
         "movie_id": int(movie_id),
         "title": detail["title"],
         "source": "TMDB",
         "count": len(reviews),
         "reviews": reviews,
-    })
+    }
+    if not reviews:
+        payload["message"] = (
+            "TMDB chưa có review người dùng cho phim này (hoặc chưa có bản tiếng Việt). "
+            "Trả lời Final Answer: nêu điểm TMDB, tóm tắt nội dung từ get_movie_details nếu đã gọi, "
+            "và giải thích không có review TMDB — không bịa review."
+        )
+    return _json_ok(payload)
 
 
 @_handle_errors

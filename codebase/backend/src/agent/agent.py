@@ -53,7 +53,6 @@ CORRECT examples (arguments are required — never call with empty parentheses):
   Action: get_similar_movies(27205, 5)
   Action: check_streaming_availability(27205, "VN")
   Action: compare_movies([27205, 157336, 1124])
-  Action: get_reviews(27205, 2)
 
 WRONG — do not do this:
   Action: filter_by_mood()      ← missing required 'mood' argument
@@ -68,12 +67,10 @@ Additional rules:
 - Valid moods: happy, sad, relaxed, excited, romantic, scary.
 - If the user message states a number of films (e.g. "3 phim"), use that exact number as limit in list tools and in Final Answer — do not return more titles than requested.
 - If the user asks for details about one film ("biết thêm về phim X", "thông tin phim X"), use get_movie_details for that title only — never answer with a new list of 3–5 unrelated films.
+- If the user asks for reviews ("review phim X", "đánh giá phim X", "nhận xét"), use get_reviews(movie_id) — not get_movie_details alone and not a new movie list.
 - Use at most one Action per step. Stop when you have enough data.
 - If Observation contains "TMDB network error", retry the same Action once before giving up.
 - Only say you cannot connect when TMDB errors persist after a retry; otherwise answer with movie data from tools.
-- When comparing movies, compare_movies already includes 1-2 real user reviews per movie. You MUST translate each review to Vietnamese and include the full translated review in your Final Answer so the user can read them directly. Format each review clearly with the author name and their full opinion. Do NOT summarize — translate and show the entire review.
-- Use get_reviews separately when the user asks for reviews of a single movie. Always translate the full review content to Vietnamese and include it in your answer for the user to read.
-- When recommending movies, if you have review data, translate the reviews to Vietnamese and include the full text so users can judge for themselves.
 """
 
     def _parse_llm_step(self, content: str) -> Dict[str, Optional[str]]:
@@ -138,14 +135,7 @@ Additional rules:
         format_retries = 0
 
         while steps < self.max_steps:
-            steps_left = self.max_steps - steps
-            step_hint = "\nYour next step:"
-            if steps_left <= 2:
-                step_hint = (
-                    f"\nYour next step: (còn {steps_left} bước — nếu đã đủ dữ liệu từ Observation, "
-                    "bắt buộc trả lời Final Answer ngay, không gọi thêm tool.)\n"
-                )
-            prompt = scratchpad + step_hint
+            prompt = scratchpad + "\nYour next step:"
             result = await self.llm.generate(prompt, system_prompt=self.get_system_prompt())
             content = result.get("content", "")
             total_latency += result.get("latency_ms", 0)

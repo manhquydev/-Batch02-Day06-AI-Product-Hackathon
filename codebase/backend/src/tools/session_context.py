@@ -11,6 +11,7 @@ _excluded_ids: ContextVar[Set[int]] = ContextVar("tmdb_excluded_ids", default=se
 _discover_start_page: ContextVar[int] = ContextVar("tmdb_discover_start_page", default=1)
 _requested_movie_limit: ContextVar[int] = ContextVar("requested_movie_limit", default=DEFAULT_MOVIES)
 _detail_mode: ContextVar[bool] = ContextVar("movie_detail_mode", default=False)
+_review_mode: ContextVar[bool] = ContextVar("movie_review_mode", default=False)
 _focus_movie_id: ContextVar[Optional[int]] = ContextVar("focus_movie_id", default=None)
 _focus_movie_title: ContextVar[Optional[str]] = ContextVar("focus_movie_title", default=None)
 
@@ -43,12 +44,24 @@ def get_requested_movie_limit() -> int:
 
 def set_movie_detail_focus(title: str, movie_id: Optional[int] = None) -> None:
     _detail_mode.set(True)
+    _review_mode.set(False)
+    _focus_movie_title.set(title.strip())
+    _focus_movie_id.set(int(movie_id) if movie_id is not None else None)
+
+
+def set_movie_review_focus(title: str, movie_id: Optional[int] = None) -> None:
+    _review_mode.set(True)
+    _detail_mode.set(False)
     _focus_movie_title.set(title.strip())
     _focus_movie_id.set(int(movie_id) if movie_id is not None else None)
 
 
 def is_movie_detail_mode() -> bool:
     return _detail_mode.get()
+
+
+def is_movie_review_mode() -> bool:
+    return _review_mode.get()
 
 
 def get_focus_movie_id() -> Optional[int]:
@@ -64,5 +77,6 @@ def clear_session_exclusions() -> None:
     _discover_start_page.set(1)
     _requested_movie_limit.set(DEFAULT_MOVIES)
     _detail_mode.set(False)
+    _review_mode.set(False)
     _focus_movie_id.set(None)
     _focus_movie_title.set(None)
