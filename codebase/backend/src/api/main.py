@@ -31,9 +31,20 @@ app = FastAPI(
     version="1.0.0",
 )
 
+# Configure allowed origins for both User and Admin Frontends
+FRONTEND_USER_URL = os.getenv("FRONTEND_USER_URL", "http://localhost:3000")
+FRONTEND_ADMIN_URL = os.getenv("FRONTEND_ADMIN_URL", "http://localhost:3001")
+
+allowed_origins = [
+    FRONTEND_USER_URL,
+    FRONTEND_ADMIN_URL,
+    "http://127.0.0.1:3000",
+    "http://127.0.0.1:3001",
+]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=allowed_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
