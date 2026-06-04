@@ -5,6 +5,15 @@ import re
 from typing import Any, Callable, Dict, List, Tuple
 
 from src.tools import movie_tools
+from src.tools.session_context import get_excluded_ids, get_requested_movie_limit, is_movie_detail_mode
+
+_LIMIT_ARG_INDEX: Dict[str, int] = {
+    "search_movies": 1,
+    "filter_by_mood": 1,
+    "get_similar_movies": 1,
+    "search_person": 1,
+    "get_movies_by_person": 2,
+}
 
 ToolFn = Callable[..., str]
 
@@ -102,6 +111,68 @@ def parse_action(action_line: str) -> Tuple[str, List[Any]]:
     return name, [args_blob.strip("\"'")]
 
 
+def _apply_requested_limit_to_args(tool_name: str, args: List[Any]) -> List[Any]:
+    """Force tool limit arg to match the count the user asked for this turn."""
+    idx = _LIMIT_ARG_INDEX.get(tool_name)
+    if idx is None:
+        return args
+    args = list(args)
+    while len(args) <= idx:
+        args.append(get_requested_movie_limit())
+    args[idx] = get_requested_movie_limit()
+    return args
+
+
+def _finalize_tool_observation(observation: str) -> str:
+    """Cap movie lists and drop session duplicates."""
+    try:
+        data = json.loads(observation)
+    except (json.JSONDecodeError, TypeError):
+        return observation
+    if not isinstance(data, dict) or data.get("error"):
+        return observation
+
+    changed = False
+    cap = get_requested_movie_limit()
+    exclude = get_excluded_ids()
+
+    for key in ("movies",):
+        items = data.get(key)
+        if not isinstance(items, list):
+            continue
+        filtered = [
+            m for m in items if isinstance(m, dict) and (not exclude or m.get("id") not in exclude)
+        ]
+        if len(filtered) > cap:
+            filtered = filtered[:cap]
+        if filtered != items:
+            data[key] = filtered
+            changed = True
+
+    comparison = data.get("comparison")
+    if isinstance(comparison, list):
+        filtered_cmp = [
+            m for m in comparison if isinstance(m, dict) and (not exclude or m.get("id") not in exclude)
+        ]
+        if len(filtered_cmp) > cap:
+            filtered_cmp = filtered_cmp[:cap]
+        if filtered_cmp != comparison:
+            data["comparison"] = filtered_cmp
+            changed = True
+
+    if isinstance(data.get("movies"), list):
+        data["count"] = len(data["movies"])
+    if changed:
+        if exclude:
+            data["session_exclusions_applied"] = True
+            data["excluded_ids_in_session"] = sorted(exclude)
+        data["requested_limit"] = cap
+    return json.dumps(data, ensure_ascii=False)
+
+
+_LIST_TOOLS_IN_DETAIL_MODE = frozenset({"get_trending_movies", "filter_by_mood"})
+
+
 async def execute_tool(tool_name: str, args: List[Any]) -> str:
     """Execute a registered tool by name. Supports both sync and async tool functions."""
     fn = TOOL_MAP.get(tool_name)
@@ -109,12 +180,23 @@ async def execute_tool(tool_name: str, args: List[Any]) -> str:
         available = ", ".join(TOOL_MAP.keys())
         return json.dumps({"error": f"Tool {tool_name} not found. Available: {available}"})
 
+    if is_movie_detail_mode() and tool_name in _LIST_TOOLS_IN_DETAIL_MODE:
+        return json.dumps(
+            {
+                "error": (
+                    "Detail mode: user asked about one specific film. "
+                    "Use search_movies(title, 1) then get_movie_details(movie_id) instead."
+                )
+            }
+        )
+
     try:
+        args = _apply_requested_limit_to_args(tool_name, args)
         result = fn(*args)
         # Await if the tool function is a coroutine
         if inspect.isawaitable(result):
             result = await result
-        return result
+        return _finalize_tool_observation(result)
     except TypeError as exc:
         return json.dumps({"error": f"Invalid arguments for {tool_name}: {exc}"})
     except Exception as exc:

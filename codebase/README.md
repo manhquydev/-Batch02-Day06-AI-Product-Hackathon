@@ -23,6 +23,16 @@ cp backend/.env.example backend/.env    # bắt buộc: OPENAI_API_KEY, TMDB_API
 docker compose up --build
 ```
 
+**Lỗi `registry-1.docker.io ... connection refused` khi `--build`:** Docker không kết nối được Docker Hub (VPN, firewall, mạng công ty). Bạn vẫn chạy được stack nếu đã build trước đó:
+
+```bash
+docker compose up -d
+```
+
+Chỉ rebuild khi có mạng ổn định; `docker-compose.yml` đặt `pull: false` để ưu tiên image base (`node:20-alpine`, `python:3.12-slim`) đã có trên máy. Nếu vẫn lỗi: bật/tắt VPN, **Docker Desktop → Settings → Resources → Network**, hoặc cấu hình HTTP/HTTPS proxy cho Docker.
+
+**Chat trả lời “không thể kết nối TMDB” / không có poster:** Container backend không gọi được `api.themoviedb.org` (cùng kiểu lỗi mạng Docker Hub). Agent vẫn trả text qua LLM nhưng tool TMDB trả `TMDB network error` nên không có dữ liệu phim. Thử: `docker compose restart backend`, tắt VPN, hoặc chạy backend ngoài Docker (`uvicorn` trong `backend/`) rồi trỏ frontend tới `http://localhost:8000`.
+
 | Service | URL |
 |---------|-----|
 | Guest UI (`frontend-user`) | http://localhost:3000 |
@@ -30,6 +40,8 @@ docker compose up --build
 | Backend API + Swagger | http://localhost:8000/docs |
 
 Dừng stack: `docker compose down`
+
+**Phiên chat (guest UI):** Mỗi lần mở/refresh trang hoặc bấm «Trò chuyện mới» → `session_id` mới. Backend lưu toàn bộ lượt (câu hỏi + câu trả lời + danh sách phim TMDB) trong RAM cho đến khi hết phiên. Câu tiếp theo như «Cho tôi 3 phim khác nữa» dùng ngữ cảnh phiên; TMDB tools **tự loại** các `movie_id` đã gợi ý và lấy trang discover/trending tiếp theo để tránh trùng poster. Sau >10 lượt, backend tóm tắt rồi tiếp tục.
 
 Rebuild sau khi đổi code frontend (biến `NEXT_PUBLIC_*` bake lúc build):
 

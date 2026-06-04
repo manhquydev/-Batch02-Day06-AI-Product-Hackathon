@@ -5,7 +5,18 @@ import json
 from typing import Any, Dict, List, Optional
 
 from src.tools.mood_config import ALLOWED_MOODS, MOOD_GENRE_IDS
+from src.tools.session_context import get_requested_movie_limit
 from src.tools.tmdb_client import TMDbClientError, get_client
+
+
+def _effective_limit(limit: int) -> int:
+    """Honor explicit tool arg, but cap to user-requested count for this turn."""
+    requested = get_requested_movie_limit()
+    try:
+        explicit = max(1, min(int(limit), 10))
+    except (TypeError, ValueError):
+        explicit = requested
+    return min(explicit, requested)
 
 
 def _json_ok(payload: Dict[str, Any]) -> str:
@@ -69,7 +80,7 @@ async def search_movies(query: str, limit: int = 5) -> str:
     if not query.strip():
         return _json_error("query must not be empty")
 
-    limit = max(1, min(int(limit), 10))
+    limit = _effective_limit(limit)
     client = get_client()
     movies = await client.search_movies(query, limit=limit)
     return _json_ok({"query": query, "source": "TMDB", "count": len(movies), "movies": movies})
@@ -90,7 +101,7 @@ async def filter_by_mood(mood: str, limit: int = 5) -> str:
     if mood_key not in ALLOWED_MOODS:
         return _json_error(f"mood must be one of {ALLOWED_MOODS}", received=mood)
 
-    limit = max(1, min(int(limit), 10))
+    limit = _effective_limit(limit)
     genre_ids = MOOD_GENRE_IDS[mood_key]
     client = get_client()
     movies = await client.discover_by_genres(genre_ids, limit=limit)
@@ -108,7 +119,7 @@ async def filter_by_mood(mood: str, limit: int = 5) -> str:
 @_handle_errors
 async def get_similar_movies(movie_id: int, limit: int = 5) -> str:
     """Suggest TMDB similar movies for a movie_id."""
-    limit = max(1, min(int(limit), 10))
+    limit = _effective_limit(limit)
     payload = await get_client().similar_movies(int(movie_id), limit=limit)
     payload["source"] = "TMDB"
     payload["count"] = len(payload["movies"])
@@ -133,11 +144,12 @@ async def get_trending_movies(
     period: str = "week",
 ) -> str:
     """Fetch trending or popular TMDB movies, optionally filtered by genre."""
+    limit = get_requested_movie_limit()
     movies = await get_client().trending_movies(
         region=region,
         genre=genre,
         period=period,
-        limit=5,
+        limit=limit,
     )
     return _json_ok(
         {
@@ -189,7 +201,7 @@ async def search_person(name: str, limit: int = 5) -> str:
     if not name.strip():
         return _json_error("name must not be empty")
 
-    limit = max(1, min(int(limit), 10))
+    limit = _effective_limit(limit)
     client = get_client()
     people = await client.search_person(name.strip(), limit=limit)
     return _json_ok(
@@ -238,7 +250,7 @@ async def get_movies_by_person(person_id: int, role: str = "director", limit: in
     if role_lower not in {"director", "actor"}:
         return _json_error("role must be 'director' or 'actor'", received=role)
 
-    limit = max(1, min(int(limit), 10))
+    limit = _effective_limit(limit)
     client = get_client()
     movies = await client.get_movies_by_person(int(person_id), role=role_lower, limit=limit)
     return _json_ok(

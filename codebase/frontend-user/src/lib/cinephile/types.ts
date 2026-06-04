@@ -33,6 +33,13 @@ export type Availability = {
 
 export type DuoPick = { m: Movie; why: string };
 
+export type FollowUpKind = "continue" | "explore" | "detail";
+
+export type FollowUpChip = {
+  text: string;
+  kind?: FollowUpKind;
+};
+
 export type ChatResponse = {
   kind: "normal" | "refuse" | "error";
   layout: "carousel" | "big" | "compare" | "none" | "duo";
@@ -47,6 +54,7 @@ export type ChatResponse = {
   tasteB?: string;
   duoPicks?: DuoPick[];
   plain?: string;
+  followUps?: FollowUpChip[];
 };
 
 export type UserMessage = { role: "user"; text: string };

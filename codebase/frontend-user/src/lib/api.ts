@@ -1,4 +1,9 @@
-import type { ChatResponse, Movie, ReasoningStep } from "@/lib/cinephile/types";
+import type {
+  ChatResponse,
+  FollowUpKind,
+  Movie,
+  ReasoningStep,
+} from "@/lib/cinephile/types";
 import { REFUSE } from "@/lib/cinephile/data";
 import { modeIdToBackend } from "@/lib/cinephile/constants";
 import { formatAnswerHtml } from "@/lib/cinephile/format-answer";
@@ -38,6 +43,7 @@ export type BackendChatResponse = {
   session_id?: string;
   turn_count?: number;
   summarized?: boolean;
+  follow_ups?: { text: string; kind?: "continue" | "explore" | "detail" }[];
 };
 
 type BackendMovie = {
@@ -158,9 +164,16 @@ function traceToReasoning(trace: BackendTraceStep[] | undefined): ReasoningStep[
 
 export function mapBackendToChatResponse(data: BackendChatResponse): ChatResponse {
   if (data.mode === "domain_guard") {
+    const followUps = (data.follow_ups || []).map((c) => ({
+      text: c.text.trim(),
+      kind: (c.kind === "explore" ? "explore" : "continue") as FollowUpKind,
+    }));
     return {
       ...REFUSE,
       text: formatAnswerHtml(data.answer || REFUSE.text),
+      followUps: followUps.length
+        ? followUps
+        : REFUSE.refuseChips?.map((text) => ({ text, kind: "explore" as const })),
     };
   }
 
@@ -172,6 +185,16 @@ export function mapBackendToChatResponse(data: BackendChatResponse): ChatRespons
   const compareLike =
     movies.length === 2 &&
     /so sánh|compare/i.test(data.answer || "");
+
+  const followUps = (data.follow_ups || [])
+    .filter((c) => c?.text?.trim())
+    .map((c) => ({
+      text: c.text.trim(),
+      kind:
+        c.kind === "explore" || c.kind === "continue" || c.kind === "detail"
+          ? c.kind
+          : undefined,
+    }));
 
   return {
     kind: "normal",
@@ -186,6 +209,7 @@ export function mapBackendToChatResponse(data: BackendChatResponse): ChatRespons
     movies,
     reasoning: reasoning.length ? reasoning : undefined,
     plain: data.answer,
+    followUps: followUps.length ? followUps : undefined,
   };
 }
 

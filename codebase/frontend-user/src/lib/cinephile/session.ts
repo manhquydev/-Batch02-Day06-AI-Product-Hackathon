@@ -1,4 +1,8 @@
-/** Phiên chat phía client — reset khi người dùng bấm "Trò chuyện mới". */
+/**
+ * Phiên chat chỉ sống trong tab hiện tại (không lưu localStorage).
+ * F5 / refresh → state React reset → sessionId mới → backend coi là phiên mới.
+ * Bấm "Trò chuyện mới" cũng tạo sessionId mới.
+ */
 
 export function newSessionId(): string {
   if (typeof crypto !== "undefined" && crypto.randomUUID) {

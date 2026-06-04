@@ -4,7 +4,9 @@ import asyncio
 import hashlib
 import json
 import os
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Set, Tuple
+
+from src.utils.title_match import rank_search_results
 
 import httpx
 from cachetools import TTLCache
@@ -13,6 +15,8 @@ TMDB_BASE_URL = "https://api.themoviedb.org/3"
 TMDB_IMAGE_BASE = "https://image.tmdb.org/t/p"
 DEFAULT_LANGUAGE = os.getenv("TMDB_LANGUAGE", "vi-VN")
 DEFAULT_REGION = os.getenv("TMDB_REGION", "VN")
+TMDB_MAX_RETRIES = max(1, int(os.getenv("TMDB_MAX_RETRIES", "3")))
+TMDB_RETRY_BACKOFF_SEC = float(os.getenv("TMDB_RETRY_BACKOFF_SEC", "0.6"))
 
 # In-memory TTL caches — shared across requests within the same process
 _details_cache: TTLCache = TTLCache(maxsize=512, ttl=3600)       # movie details: 1 hour
@@ -82,19 +86,29 @@ class TMDbClient:
                 return cache[key]
 
         client = self._get_http_client()
-        try:
-            response = await client.get(path, params=query)
-            response.raise_for_status()
-        except httpx.HTTPStatusError as exc:
-            msg = str(exc)
+        last_request_error: Optional[httpx.RequestError] = None
+        for attempt in range(1, TMDB_MAX_RETRIES + 1):
             try:
-                payload = exc.response.json()
-                if isinstance(payload, dict):
-                    msg = payload.get("status_message") or payload.get("errors") or msg
-            except Exception:
-                pass
-            raise TMDbClientError(f"TMDB request failed ({exc.response.status_code}): {msg}") from exc
-        except httpx.RequestError as exc:
+                response = await client.get(path, params=query)
+                response.raise_for_status()
+                break
+            except httpx.HTTPStatusError as exc:
+                msg = str(exc)
+                try:
+                    payload = exc.response.json()
+                    if isinstance(payload, dict):
+                        msg = payload.get("status_message") or payload.get("errors") or msg
+                except Exception:
+                    pass
+                raise TMDbClientError(f"TMDB request failed ({exc.response.status_code}): {msg}") from exc
+            except httpx.RequestError as exc:
+                last_request_error = exc
+                if attempt < TMDB_MAX_RETRIES:
+                    await asyncio.sleep(TMDB_RETRY_BACKOFF_SEC * attempt)
+                    continue
+        else:
+            exc = last_request_error
+            assert exc is not None
             err_msg = str(exc) or "Không thể kết nối (Connection blocked/reset)"
             raise TMDbClientError(f"TMDB network error: {type(exc).__name__} - {err_msg}") from exc
 
@@ -126,6 +140,30 @@ class TMDbClient:
             return int(release_date[:4])
         return None
 
+    def _session_exclude(self) -> tuple[Set[int], int]:
+        try:
+            from src.tools.session_context import get_discover_start_page, get_excluded_ids
+
+            return get_excluded_ids(), get_discover_start_page()
+        except Exception:
+            return set(), 1
+
+    async def _pick_unique_summaries(
+        self,
+        raw_movies: List[Dict[str, Any]],
+        limit: int,
+        exclude: Set[int],
+    ) -> List[Dict[str, Any]]:
+        picked: List[Dict[str, Any]] = []
+        for movie in raw_movies:
+            mid = movie.get("id")
+            if mid is not None and int(mid) in exclude:
+                continue
+            picked.append(await self.summarize(movie))
+            if len(picked) >= limit:
+                break
+        return picked
+
     async def summarize(self, movie: Dict[str, Any]) -> Dict[str, Any]:
         raw_genre_ids = movie.get("genre_ids") or []
         if raw_genre_ids:
@@ -151,13 +189,38 @@ class TMDbClient:
         }
 
     async def search_movies(self, query: str, limit: int = 5) -> List[Dict[str, Any]]:
-        data = await self._get(
-            "/search/movie",
-            {"query": query.strip(), "include_adult": "false", "page": 1},
-            cache=_search_cache,
-        )
-        results = data.get("results", [])[:limit]
-        return [await self.summarize(movie) for movie in results]
+        exclude, start_page = self._session_exclude()
+        limit = max(1, min(int(limit), 10))
+        query = query.strip()
+        ranked_pool: List[Tuple[float, Dict[str, Any]]] = []
+        seen_ids: Set[int] = set()
+
+        for page in range(start_page, start_page + 5):
+            data = await self._get(
+                "/search/movie",
+                {"query": query, "include_adult": "false", "page": page},
+                cache=_search_cache,
+            )
+            for score, movie in rank_search_results(data.get("results", []), query):
+                mid = movie.get("id")
+                if mid is None or mid in seen_ids or mid in exclude:
+                    continue
+                seen_ids.add(mid)
+                ranked_pool.append((score, movie))
+
+            if page >= data.get("total_pages", page):
+                break
+
+        ranked_pool.sort(key=lambda pair: pair[0], reverse=True)
+
+        picked: List[Dict[str, Any]] = []
+        for _score, movie in ranked_pool[: limit * 2]:
+            if movie.get("id") in exclude:
+                continue
+            picked.append(await self.summarize(movie))
+            if len(picked) >= limit:
+                break
+        return picked
 
     async def get_movie_details(self, movie_id: int) -> Dict[str, Any]:
         data = await self._get(
@@ -201,25 +264,57 @@ class TMDbClient:
         limit: int = 5,
         region: Optional[str] = None,
     ) -> List[Dict[str, Any]]:
-        data = await self._get(
-            "/discover/movie",
-            {
-                "with_genres": ",".join(str(g) for g in genre_ids),
-                "sort_by": "popularity.desc",
-                "include_adult": "false",
-                "vote_count.gte": 100,
-                "region": (region or self.region).upper(),
-                "page": 1,
-            },
-            cache=_trending_cache,
-        )
-        return [await self.summarize(movie) for movie in data.get("results", [])[:limit]]
+        exclude, start_page = self._session_exclude()
+        limit = max(1, min(int(limit), 10))
+        picked: List[Dict[str, Any]] = []
+        base_params = {
+            "with_genres": ",".join(str(g) for g in genre_ids),
+            "sort_by": "popularity.desc",
+            "include_adult": "false",
+            "vote_count.gte": 100,
+            "region": (region or self.region).upper(),
+        }
+        for page in range(start_page, start_page + 5):
+            data = await self._get(
+                "/discover/movie",
+                {**base_params, "page": page},
+                cache=_trending_cache,
+            )
+            batch = await self._pick_unique_summaries(
+                data.get("results", []),
+                limit - len(picked),
+                exclude,
+            )
+            picked.extend(batch)
+            if len(picked) >= limit:
+                return picked[:limit]
+            if page >= data.get("total_pages", page):
+                break
+        return picked
 
     async def similar_movies(self, movie_id: int, limit: int = 5) -> Dict[str, Any]:
+        exclude, start_page = self._session_exclude()
+        limit = max(1, min(int(limit), 10))
         source = await self.get_movie_details(movie_id)
-        data = await self._get(f"/movie/{int(movie_id)}/similar", {"page": 1}, cache=_search_cache)
-        similar = [await self.summarize(movie) for movie in data.get("results", [])[:limit]]
-        return {"source": source["title"], "movies": similar}
+        exclude = set(exclude) | {int(movie_id)}
+        picked: List[Dict[str, Any]] = []
+        for page in range(start_page, start_page + 5):
+            data = await self._get(
+                f"/movie/{int(movie_id)}/similar",
+                {"page": page},
+                cache=_search_cache,
+            )
+            batch = await self._pick_unique_summaries(
+                data.get("results", []),
+                limit - len(picked),
+                exclude,
+            )
+            picked.extend(batch)
+            if len(picked) >= limit:
+                break
+            if page >= data.get("total_pages", page):
+                break
+        return {"source": source["title"], "movies": picked[:limit]}
 
     async def watch_providers(self, movie_id: int, country: str = DEFAULT_REGION) -> Dict[str, Any]:
         data = await self._get(f"/movie/{int(movie_id)}/watch/providers", cache=_providers_cache)
@@ -267,29 +362,47 @@ class TMDbClient:
                 )
             return await self.discover_by_genres([genre_id], limit=limit, region=region)
 
-        data = await self._get(
-            f"/trending/movie/{period_key}",
-            {"region": region.upper()},
-            cache=_trending_cache,
-        )
-        movies = [await self.summarize(movie) for movie in data.get("results", [])[: limit * 2]]
-
-        if region.upper() != "US":
-            regional = await self._get(
-                "/discover/movie",
-                {
-                    "sort_by": "popularity.desc",
-                    "region": region.upper(),
-                    "include_adult": "false",
-                    "page": 1,
-                },
+        exclude, start_page = self._session_exclude()
+        picked: List[Dict[str, Any]] = []
+        for page in range(start_page, start_page + 3):
+            data = await self._get(
+                f"/trending/movie/{period_key}",
+                {"region": region.upper(), "page": page},
                 cache=_trending_cache,
             )
-            regional_summaries = [await self.summarize(m) for m in regional.get("results", [])[:limit]]
-            if regional_summaries:
-                return regional_summaries
+            batch = await self._pick_unique_summaries(
+                data.get("results", []),
+                limit - len(picked),
+                exclude,
+            )
+            picked.extend(batch)
+            if len(picked) >= limit:
+                return picked[:limit]
 
-        return movies[:limit]
+        if region.upper() != "US":
+            for page in range(start_page, start_page + 5):
+                regional = await self._get(
+                    "/discover/movie",
+                    {
+                        "sort_by": "popularity.desc",
+                        "region": region.upper(),
+                        "include_adult": "false",
+                        "page": page,
+                    },
+                    cache=_trending_cache,
+                )
+                batch = await self._pick_unique_summaries(
+                    regional.get("results", []),
+                    limit - len(picked),
+                    exclude,
+                )
+                picked.extend(batch)
+                if len(picked) >= limit:
+                    return picked[:limit]
+                if page >= regional.get("total_pages", page):
+                    break
+
+        return picked[:limit]
 
     async def search_person(self, name: str, limit: int = 5) -> List[Dict[str, Any]]:
         """Search for a person (actor/director) on TMDB by name."""
@@ -370,8 +483,9 @@ class TMDbClient:
             except TMDbClientError:
                 return None
 
+        exclude, _ = self._session_exclude()
         results = await asyncio.gather(*[_safe_detail(mid) for mid in movie_ids[:limit]])
-        return [r for r in results if r is not None]
+        return [r for r in results if r is not None and r.get("id") not in exclude]
 
 
 _client: Optional[TMDbClient] = None
