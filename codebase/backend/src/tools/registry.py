@@ -68,6 +68,12 @@ TOOL_SPECS: List[Dict[str, Any]] = [
         movie_tools.get_movies_by_person,
         'get_movies_by_person(2001, "director", 5)',
     ),
+    _spec(
+        "get_movie_trailer",
+        "Get YouTube trailer URL for a movie. Args: movie_id (int, TMDB id). Returns trailer_url and embed_url, or null if unavailable. Use search_movies first if you only have a title.",
+        movie_tools.get_movie_trailer,
+        "get_movie_trailer(27205)",
+    ),
 ]
 
 TOOL_MAP: Dict[str, ToolFn] = {spec["name"]: spec["fn"] for spec in TOOL_SPECS}

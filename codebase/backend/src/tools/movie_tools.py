@@ -203,6 +203,35 @@ async def search_person(name: str, limit: int = 5) -> str:
 
 
 @_handle_errors
+async def get_movie_trailer(movie_id: int) -> str:
+    """Fetch YouTube trailer URL for a movie from TMDB."""
+    client = get_client()
+    videos, detail = await asyncio.gather(
+        client.get_movie_videos(int(movie_id)),
+        client.get_movie_details(int(movie_id)),
+    )
+
+    if not videos["trailer_url"]:
+        return _json_ok({
+            "movie_id": movie_id,
+            "title": detail["title"],
+            "source": "TMDB",
+            "trailer_url": None,
+            "message": "Không tìm thấy trailer YouTube cho phim này.",
+        })
+
+    return _json_ok({
+        "movie_id": movie_id,
+        "title": detail["title"],
+        "source": "TMDB",
+        "trailer_key": videos["trailer_key"],
+        "trailer_url": videos["trailer_url"],
+        "trailer_embed_url": videos["trailer_embed_url"],
+        "trailer_name": videos["name"],
+    })
+
+
+@_handle_errors
 async def get_movies_by_person(person_id: int, role: str = "director", limit: int = 5) -> str:
     """Get list of movies by a person (director or actor). Args: person_id (int), role ('director'|'actor'), limit (int)."""
     role_lower = role.strip().lower()
