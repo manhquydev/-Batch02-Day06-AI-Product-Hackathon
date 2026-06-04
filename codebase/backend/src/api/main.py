@@ -50,7 +50,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-ModeType = Literal["ReAct Agent", "ReAct Agent v2", "ReAct Agent v1", "Chatbot Baseline"]
+ModeType = Literal["ReAct Agent"]
 
 
 class ChatRequest(BaseModel):
