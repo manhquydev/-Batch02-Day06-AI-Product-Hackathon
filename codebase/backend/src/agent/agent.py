@@ -101,7 +101,13 @@ Additional rules:
         format_retries = 0
 
         while steps < self.max_steps:
-            prompt = scratchpad + "\nYour next step:"
+            remaining = self.max_steps - steps
+            urgency = (
+                " YOU MUST output 'Final Answer: <answer>' on this step — no more tool calls."
+                if remaining == 1
+                else (f" You have {remaining} steps left. Finalize soon." if remaining <= 2 else "")
+            )
+            prompt = scratchpad + f"\nYour next step:{urgency}"
             result = await self.llm.generate(prompt, system_prompt=self.get_system_prompt())
             content = result.get("content", "")
             total_latency += result.get("latency_ms", 0)
@@ -145,8 +151,9 @@ Additional rules:
                         f"Action: {parsed['action']}\n"
                         f"Observation: {observation}\n"
                     )
+                steps += 1
             else:
-                # Retry logic: re-prompt with format reminder before giving up the step
+                # Format retry: re-prompt with format reminder; does NOT consume a step
                 format_retries += 1
                 trace.append(step_record)
                 if format_retries <= self.MAX_FORMAT_RETRIES:
@@ -163,8 +170,7 @@ Additional rules:
                         "Please provide Final Answer now.\n"
                     )
                     format_retries = 0
-
-            steps += 1
+                    steps += 1
 
         if not final_answer:
             final_answer = (
