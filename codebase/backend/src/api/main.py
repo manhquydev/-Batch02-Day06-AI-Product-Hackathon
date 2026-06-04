@@ -89,11 +89,6 @@ def health():
     }
 
 
-@app.get("/api/models")
-def list_models():
-    return {"models": list(build_model_options())}
-
-
 @app.get("/api/tools")
 def list_tools():
     return {"tools": _serialize_tools()}
@@ -102,11 +97,6 @@ def list_tools():
 @app.get("/api/example-prompts")
 def example_prompts():
     return {"prompts": EXAMPLE_PROMPTS}
-
-
-@app.get("/api/modes")
-def list_modes():
-    return {"modes": list(VALID_MODES)}
 
 
 # In-memory chat session store (session_id -> list of message dicts)
