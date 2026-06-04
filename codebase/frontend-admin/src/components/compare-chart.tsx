@@ -87,6 +87,8 @@ export function CompareChart({ results }: { results: Record<string, CompareResul
 
   if (entries.length < 2) return null;
 
+  const hasSteps = entries.some((e) => (e.result.steps ?? 0) > 0);
+
   return (
     <div className="mt-6 p-5 bg-zinc-800/50 border border-zinc-700 rounded-xl space-y-5">
       <div className="flex items-center justify-between">
@@ -105,14 +107,18 @@ export function CompareChart({ results }: { results: Record<string, CompareResul
         getValue={(r) => r.latency_ms ?? 0}
         lowerIsBetter
       />
-      <div className="border-t border-zinc-700/50" />
-      <MetricSection
-        title="Steps"
-        unit=""
-        entries={entries}
-        getValue={(r) => r.steps ?? 0}
-        lowerIsBetter
-      />
+      {hasSteps && (
+        <>
+          <div className="border-t border-zinc-700/50" />
+          <MetricSection
+            title="Steps"
+            unit=""
+            entries={entries}
+            getValue={(r) => r.steps ?? 0}
+            lowerIsBetter
+          />
+        </>
+      )}
     </div>
   );
 }

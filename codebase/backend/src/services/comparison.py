@@ -51,7 +51,7 @@ async def run_parallel_comparison(
             res = await executor_fn(mode, query, provider, model, max_steps)
             return key, {"ok": True, **res}
         except Exception as exc:
-            return key, {"ok": False, "error": str(exc), "answer": f"Lỗi: {exc}"}
+            return key, {"ok": False, "error": str(exc), "answer": f"Lỗi: {exc}", "movies": []}
 
     pairs = await asyncio.gather(*[_run_one(key) for key in selected_models])
     return {key: result for key, result in pairs}

@@ -32,8 +32,9 @@ export default function DashboardPage() {
     if (query) {
       const now = new Date();
       const timestamp = now.toTimeString().slice(0, 8);
+      const id = ++historyIdRef.current;
       setHistory((prev) =>
-        [{ id: ++historyIdRef.current, query, latency, model, timestamp }, ...prev].slice(0, 20)
+        [{ id, query, latency, model, timestamp }, ...prev].slice(0, 20)
       );
     }
   }
@@ -128,9 +129,9 @@ export default function DashboardPage() {
         entries={history}
         open={historyOpen}
         onToggle={() => setHistoryOpen((p) => !p)}
-        onSelect={(e) => {
+        onSelect={(_e) => {
+          // TODO: restore query/result into SingleTab (requires lifting state or controlled props)
           setHistoryOpen(false);
-          // Switch to single tab so user sees the restored context
           setTab("single");
         }}
       />
