@@ -1,6 +1,27 @@
-# Batch 02 · Day 06 — AI Product Hackathon
+# Day06 — AI Movie Recommendation (ReAct Agent)
 
 > SPEC → Prototype → Demo. Hôm nay không có bài giảng mới — hôm nay chứng minh: SPEC là giả thuyết, prototype là bằng chứng, demo là thuyết phục.
+
+---
+
+## Thành viên nhóm
+
+| Mã học viên | Họ và tên |
+|-------------|-----------|
+| 2A202600737 | Trịnh Thị Lan Anh |
+| 2A202600643 | Nguyễn Mạnh Quý |
+| 2A202600892 | Nguyễn Thanh Anh Quân |
+| 2A202600981 | Nguyễn Đình Bảo Long |
+
+## Sản phẩm
+
+**Track:** Entertainment / AI Recommendation
+
+Prototype ReAct Agent giúp người dùng Việt Nam (18–35 tuổi, có Netflix/Disney+) chọn phim tối nay trong dưới 30 giây — nhập câu tự nhiên, nhận poster grid 3-5 phim với streaming badge VN và giải thích ngắn vì sao gợi ý.
+
+Stack: FastAPI (Python) + ReAct Agent + 9 TMDB tools + Next.js (guest UI + admin trace viewer).
+
+---
 
 ---
 
