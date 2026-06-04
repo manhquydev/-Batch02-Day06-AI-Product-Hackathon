@@ -1,0 +1,68 @@
+# Chạy toàn bộ stack: backend + frontend-user + frontend-admin
+#
+#   cd codebase
+#   cp backend/.env.example backend/.env   # điền OPENAI_API_KEY, TMDB_API_KEY
+#   docker compose up --build
+#
+# URLs:
+#   Guest UI  → http://localhost:3000
+#   Admin UI  → http://localhost:3001
+#   API docs  → http://localhost:8000/docs
+
+services:
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: cinephile-backend
+    ports:
+      - "8000:8000"
+    env_file:
+      - path: ./backend/.env
+        required: false
+    environment:
+      TMDB_LANGUAGE: ${TMDB_LANGUAGE:-vi-VN}
+      TMDB_REGION: ${TMDB_REGION:-VN}
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health')",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    restart: unless-stopped
+
+  frontend-user:
+    build:
+      context: ./frontend-user
+      dockerfile: Dockerfile
+      args:
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8000}
+        NEXT_PUBLIC_USE_REAL_API: ${NEXT_PUBLIC_USE_REAL_API:-true}
+        NEXT_PUBLIC_DEFAULT_MODEL: ${NEXT_PUBLIC_DEFAULT_MODEL:-openai/gpt-4o-mini}
+    container_name: cinephile-frontend-user
+    ports:
+      - "3000:3000"
+    depends_on:
+      backend:
+        condition: service_healthy
+    restart: unless-stopped
+
+  frontend-admin:
+    build:
+      context: ./frontend-admin
+      dockerfile: Dockerfile
+      args:
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8000}
+    container_name: cinephile-frontend-admin
+    ports:
+      - "3001:3000"
+    depends_on:
+      backend:
+        condition: service_healthy
+    restart: unless-stopped

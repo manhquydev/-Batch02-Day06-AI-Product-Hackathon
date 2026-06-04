@@ -6,6 +6,7 @@ export type Movie = {
   genres: string[];
   netflix?: boolean;
   overview?: string;
+  poster_url?: string;
   h1: number;
   h2: number;
 };
@@ -74,6 +75,7 @@ export type Suggestion = { icon: string; text: string };
 
 export type AppConfig = {
   mode: string;
+  provider: string;
   model: string;
   maxSteps: number;
   realApi: boolean;

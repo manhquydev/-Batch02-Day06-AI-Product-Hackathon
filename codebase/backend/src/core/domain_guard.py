@@ -42,6 +42,10 @@ MOVIE_INTENT_TERMS = (
     "tim phim",
     "so sanh phim",
     "trending",
+    "xem chung",
+    "doi minh",
+    "hai nguoi xem",
+    "the loai phim",
 )
 
 KNOWN_MOVIE_TITLES = (

@@ -1,0 +1,180 @@
+import type { ChatResponse, Movie, ReasoningStep } from "@/lib/cinephile/types";
+import { REFUSE } from "@/lib/cinephile/data";
+import { modeIdToBackend } from "@/lib/cinephile/constants";
+
+export const API_BASE =
+  process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
+
+export const USE_REAL_API =
+  process.env.NEXT_PUBLIC_USE_REAL_API !== "false";
+
+export type BackendTraceStep = {
+  step?: number;
+  thought?: string | null;
+  action?: string | null;
+  observation?: string | null;
+  raw?: string;
+};
+
+export type BackendChatResponse = {
+  answer: string;
+  trace?: BackendTraceStep[];
+  steps?: number;
+  latency_ms?: number;
+  usage?: { prompt_tokens: number; completion_tokens: number; total_tokens: number };
+  mode?: string;
+  movies?: BackendMovie[];
+};
+
+type BackendMovie = {
+  id?: number;
+  title?: string;
+  year?: number;
+  rating?: number;
+  genres?: string[] | string;
+  netflix?: boolean;
+  overview?: string;
+  poster_url?: string | null;
+  [key: string]: unknown;
+};
+
+export type ChatParams = {
+  message: string;
+  modeId: string;
+  provider: string;
+  model: string;
+  max_steps: number;
+};
+
+async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
+  const res = await fetch(`${API_BASE}${path}`, {
+    ...init,
+    headers: { "Content-Type": "application/json", ...(init?.headers ?? {}) },
+  });
+  if (!res.ok) {
+    let detail = "";
+    try {
+      const body = await res.json();
+      detail =
+        typeof body.detail === "string"
+          ? body.detail
+          : JSON.stringify(body.detail ?? body);
+    } catch {
+      detail = await res.text().catch(() => "");
+    }
+    throw new Error(`${res.status}: ${detail || res.statusText}`);
+  }
+  return res.json() as Promise<T>;
+}
+
+export function fetchHealth(): Promise<{
+  status: string;
+  openai_configured: boolean;
+  tmdb_configured: boolean;
+}> {
+  return apiFetch("/health");
+}
+
+export function runChat(params: ChatParams): Promise<BackendChatResponse> {
+  const mode = modeIdToBackend(params.modeId);
+  return apiFetch("/api/chat", {
+    method: "POST",
+    body: JSON.stringify({
+      message: params.message,
+      mode,
+      provider: params.provider,
+      model: params.model,
+      max_steps: params.max_steps,
+    }),
+  });
+}
+
+function hueFromTitle(title: string): { h1: number; h2: number } {
+  let h = 0;
+  for (let i = 0; i < title.length; i++) h = (h * 31 + title.charCodeAt(i)) % 360;
+  return { h1: h, h2: (h + 38) % 360 };
+}
+
+export function normalizeMovie(raw: BackendMovie): Movie | null {
+  const title = (raw.title || "").trim();
+  if (!title) return null;
+  const { h1, h2 } = hueFromTitle(title);
+  const genres = Array.isArray(raw.genres)
+    ? raw.genres.map(String)
+    : typeof raw.genres === "string"
+      ? raw.genres.split(/[,·]/).map((g) => g.trim()).filter(Boolean)
+      : [];
+  return {
+    id: raw.id,
+    title,
+    year: Number(raw.year) || 0,
+    rating: Number(raw.rating) || 0,
+    genres: genres.length ? genres : ["Phim"],
+    netflix: Boolean(raw.netflix),
+    overview: typeof raw.overview === "string" ? raw.overview : undefined,
+    poster_url:
+      typeof raw.poster_url === "string" && raw.poster_url ? raw.poster_url : undefined,
+    h1,
+    h2,
+  };
+}
+
+function answerToHtml(answer: string): string {
+  const trimmed = answer.trim();
+  if (!trimmed) return "<p></p>";
+  if (/<[a-z][\s\S]*>/i.test(trimmed)) return trimmed;
+  return "<p>" + trimmed.replace(/\n+/g, "</p><p>") + "</p>";
+}
+
+function traceToReasoning(trace: BackendTraceStep[] | undefined): ReasoningStep[] {
+  if (!trace?.length) return [];
+  return trace
+    .map((s) => ({
+      thought: (s.thought || "").trim(),
+      action: (s.action || "").trim(),
+      observe: (s.observation || "").trim(),
+    }))
+    .filter((s) => s.thought || s.action || s.observe);
+}
+
+export function mapBackendToChatResponse(data: BackendChatResponse): ChatResponse {
+  if (data.mode === "domain_guard") {
+    return {
+      ...REFUSE,
+      text: answerToHtml(data.answer || REFUSE.text),
+    };
+  }
+
+  const movies = (data.movies || [])
+    .map(normalizeMovie)
+    .filter((m): m is Movie => m !== null);
+
+  const reasoning = traceToReasoning(data.trace);
+  const compareLike =
+    movies.length === 2 &&
+    /so sánh|compare/i.test(data.answer || "");
+
+  return {
+    kind: "normal",
+    layout: !movies.length
+      ? "none"
+      : compareLike
+        ? "compare"
+        : movies.length === 1
+          ? "big"
+          : "carousel",
+    text: answerToHtml(data.answer || ""),
+    movies,
+    reasoning: reasoning.length ? reasoning : undefined,
+    plain: data.answer,
+  };
+}
+
+export function parseModelKey(modelKey: string): { provider: string; model: string } {
+  const slash = modelKey.indexOf("/");
+  if (slash === -1) return { provider: "openai", model: modelKey };
+  return {
+    provider: modelKey.slice(0, slash),
+    model: modelKey.slice(slash + 1),
+  };
+}
