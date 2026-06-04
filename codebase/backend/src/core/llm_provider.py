@@ -1,6 +1,6 @@
 import os
 from abc import ABC, abstractmethod
-from typing import Dict, Any, List, Optional, Generator
+from typing import Dict, Any, List, Optional, AsyncGenerator
 
 class LLMProvider(ABC):
     """
@@ -13,7 +13,7 @@ class LLMProvider(ABC):
         self.api_key = api_key
 
     @abstractmethod
-    def generate(self, prompt: str, system_prompt: Optional[str] = None) -> Dict[str, Any]:
+    async def generate(self, prompt: str, system_prompt: Optional[str] = None) -> Dict[str, Any]:
         """
         Produce a non-streaming completion.
         Returns:
@@ -25,6 +25,6 @@ class LLMProvider(ABC):
         pass
 
     @abstractmethod
-    def stream(self, prompt: str, system_prompt: Optional[str] = None) -> Generator[str, None, None]:
+    async def stream(self, prompt: str, system_prompt: Optional[str] = None) -> AsyncGenerator[str, None]:
         """Produce a streaming completion."""
         pass

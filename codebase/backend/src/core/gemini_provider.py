@@ -1,7 +1,8 @@
 import time
-from typing import Any, Dict, Generator, List, Optional
+from typing import Any, Dict, AsyncGenerator, List, Optional
 
 import requests
+import httpx
 
 from src.core.llm_provider import LLMProvider
 
@@ -55,7 +56,7 @@ class GeminiProvider(LLMProvider):
         self.temperature = temperature
         self.max_output_tokens = max_output_tokens
 
-    def generate(self, prompt: str, system_prompt: Optional[str] = None) -> Dict[str, Any]:
+    async def generate(self, prompt: str, system_prompt: Optional[str] = None) -> Dict[str, Any]:
         if not self.api_key:
             raise ValueError("Missing GEMINI_API_KEY in .env")
 
@@ -75,13 +76,15 @@ class GeminiProvider(LLMProvider):
         if system_prompt:
             payload["systemInstruction"] = {"parts": [{"text": system_prompt}]}
 
-        resp = requests.post(
-            f"{self.base_url}/models/{self.model_name}:generateContent",
-            params={"key": self.api_key},
-            json=payload,
-            timeout=180,
-        )
-        if not resp.ok:
+        async with httpx.AsyncClient() as client:
+            resp = await client.post(
+                f"{self.base_url}/models/{self.model_name}:generateContent",
+                params={"key": self.api_key},
+                json=payload,
+                timeout=180.0,
+            )
+        
+        if not resp.is_success:
             try:
                 message = resp.json().get("error", {}).get("message", resp.text)
             except ValueError:
@@ -111,5 +114,6 @@ class GeminiProvider(LLMProvider):
             "provider": "gemini",
         }
 
-    def stream(self, prompt: str, system_prompt: Optional[str] = None) -> Generator[str, None, None]:
-        yield self.generate(prompt, system_prompt=system_prompt)["content"]
+    async def stream(self, prompt: str, system_prompt: Optional[str] = None) -> AsyncGenerator[str, None]:
+        res = await self.generate(prompt, system_prompt=system_prompt)
+        yield res["content"]

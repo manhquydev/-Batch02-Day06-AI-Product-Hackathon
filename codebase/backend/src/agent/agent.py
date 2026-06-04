@@ -102,7 +102,7 @@ Additional rules:
 
         while steps < self.max_steps:
             prompt = scratchpad + "\nYour next step:"
-            result = self.llm.generate(prompt, system_prompt=self.get_system_prompt())
+            result = await self.llm.generate(prompt, system_prompt=self.get_system_prompt())
             content = result.get("content", "")
             total_latency += result.get("latency_ms", 0)
 
