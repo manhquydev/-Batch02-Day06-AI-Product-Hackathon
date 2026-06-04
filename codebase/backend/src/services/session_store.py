@@ -54,6 +54,15 @@ class SessionStore:
             self._sessions[session_id] = session
             return session
 
+    def append_turn(self, session_id: str, turn: "ChatTurn") -> int:
+        """Atomically append a turn and return the new turn count."""
+        with self._lock:
+            session = self._sessions.get(session_id)
+            if session is None:
+                return 0
+            session.turns.append(turn)
+            return len(session.turns)
+
     def reset(self, session_id: str) -> ChatSession:
         with self._lock:
             session = ChatSession(id=session_id)

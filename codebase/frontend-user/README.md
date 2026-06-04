@@ -45,7 +45,7 @@ NEXT_PUBLIC_DEFAULT_MODEL=openai/gpt-4o-mini
 
 **CORS:** Backend chỉ cho phép một số origin (`FRONTEND_USER_URL`). Không set `NEXT_PUBLIC_API_URL` (hoặc để trống) để dùng proxy và tránh `OPTIONS /api/chat 400`.
 
-Để gọi thẳng `:8000` từ browser: `NEXT_PUBLIC_API_URL=http://localhost:3000` phải khớp tab bạn mở và `FRONTEND_USER_URL` trên backend.
+Để gọi thẳng `:8000` từ browser: `NEXT_PUBLIC_API_URL=http://localhost:8000` phải khớp `FRONTEND_USER_URL` trên backend.
 
 Để dùng dữ liệu mẫu offline: `NEXT_PUBLIC_USE_REAL_API=false`.
 

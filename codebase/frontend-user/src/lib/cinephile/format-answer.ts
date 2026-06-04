@@ -44,7 +44,6 @@ export function extractIntroParagraph(answer: string): string {
 export function markdownToHtml(markdown: string): string {
   const trimmed = markdown.trim();
   if (!trimmed) return "<p></p>";
-  if (/<[a-z][\s\S]*>/i.test(trimmed)) return trimmed;
 
   const lines = trimmed.replace(/\r\n/g, "\n").split("\n");
   const parts: string[] = [];

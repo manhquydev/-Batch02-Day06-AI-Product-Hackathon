@@ -303,7 +303,7 @@ class TestChatEndpoint:
         """Invalid mode returns 422 (Pydantic validation)."""
         payload = {
             "message": "test",
-            "mode": "ReAct Agent v2",  # Invalid: not in Literal["ReAct Agent"]
+            "mode": "UnknownMode",  # Not in ModeType Literal
             "provider": "openai",
             "model": "gpt-4o-mini",
             "max_steps": 5,

@@ -35,7 +35,7 @@ export function CompareTab({ mode, models, maxSteps, onResult }: Props) {
       setResult(r);
       Object.entries(r.results).forEach(([key, res]) => {
         if (res.ok !== false && res.latency_ms != null) {
-          onResult?.(res.latency_ms, key);
+          onResult?.(res.latency_ms, key, query);
         }
       });
     } catch (e) {

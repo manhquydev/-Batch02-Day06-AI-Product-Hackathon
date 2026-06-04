@@ -53,7 +53,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-ModeType = Literal["ReAct Agent"]
+ModeType = Literal["ReAct Agent", "ReAct Agent v2", "ReAct Agent v1", "Chatbot Baseline"]
 
 
 class HistoryMessage(BaseModel):
@@ -154,7 +154,7 @@ async def summarize_chat(body: SummaryRequest):
         summary = await summarize_messages(payload, body.provider, body.model)
         return {"summary": summary}
     except Exception as exc:
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
+        raise HTTPException(status_code=500, detail="Internal server error while summarizing chat") from exc
 
 
 @app.post("/api/chat")
@@ -189,8 +189,9 @@ async def chat(body: ChatRequest):
                 contextual_input=contextual_input,
             )
             answer = result.get("answer") or ""
-            session.turns.append(ChatTurn(user=body.message, assistant=answer))
-            turn_count = session.turn_count
+            turn_count = session_store.append_turn(
+                session_id, ChatTurn(user=body.message, assistant=answer)
+            )
         else:
             result = await run_query(
                 body.mode, body.message, body.provider, body.model, body.max_steps
@@ -203,7 +204,7 @@ async def chat(body: ChatRequest):
             enriched["summarized"] = summarized
         return enriched
     except Exception as exc:
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
+        raise HTTPException(status_code=500, detail="Internal server error") from exc
 
 
 @app.post("/api/compare")
@@ -224,4 +225,4 @@ async def compare(body: CompareRequest):
             enriched[key] = {**res, "movies": extract_movies_from_trace(res.get("trace"))}
         return {"results": enriched}
     except Exception as exc:
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
+        raise HTTPException(status_code=500, detail="Internal server error during comparison") from exc

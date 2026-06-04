@@ -22,9 +22,11 @@ RUN npm run build
 FROM node:20-alpine AS runner
 WORKDIR /app
 
+ARG BACKEND_URL=http://backend:8000
 ENV NODE_ENV=production \
     PORT=3000 \
-    HOSTNAME=0.0.0.0
+    HOSTNAME=0.0.0.0 \
+    BACKEND_URL=${BACKEND_URL}
 
 RUN addgroup --system --gid 1001 nodejs && \
     adduser --system --uid 1001 nextjs

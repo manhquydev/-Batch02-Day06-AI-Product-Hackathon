@@ -54,7 +54,7 @@ type BackendMovie = {
 
 export type ChatParams = {
   message: string;
-  session_id: string;
+  session_id?: string;
   modeId: string;
   provider: string;
   model: string;

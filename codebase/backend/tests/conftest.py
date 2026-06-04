@@ -129,16 +129,16 @@ def mock_comparison_result() -> Dict[str, Any]:
 
 @pytest.fixture(autouse=True)
 def reset_session_store() -> Generator[None, None, None]:
-    """Reset the session store before each test."""
-    from src.services.session_store import SessionStore
+    """Clear session store state before/after each test.
 
-    # Create a fresh session store for this test
-    from src.services import session_store as session_module
+    Mutates the existing singleton in-place so all module-level references
+    (main.py, test modules) remain valid without needing patching.
+    """
+    from src.services.session_store import store as _store
 
-    session_module.store = SessionStore()
+    _store._sessions.clear()
     yield
-    # Clean up after test
-    session_module.store = SessionStore()
+    _store._sessions.clear()
 
 
 @pytest.fixture(autouse=True)
