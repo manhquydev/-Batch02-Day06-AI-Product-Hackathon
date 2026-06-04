@@ -43,7 +43,10 @@ uvicorn src.api.main:app --reload --host 0.0.0.0 --port 8000
 | GET | `/api/models` | Danh sách `provider/model` khả dụng |
 | GET | `/api/tools` | 9 TMDB tools |
 | GET | `/api/example-prompts` | Câu hỏi mẫu |
-| POST | `/api/chat` | Một model — chat / ReAct |
+| POST | `/api/chat` | Một model — chat / ReAct (hỗ trợ `session_id` đa lượt) |
+| POST | `/api/sessions` | Tạo phiên chat mới |
+| POST | `/api/sessions/{id}/reset` | Xóa lịch sử phiên |
+| POST | `/api/summary` | Tóm tắt lịch sử (tự gọi khi >10 lượt) |
 | POST | `/api/compare` | 2–4 models song song |
 
 ### Ví dụ `POST /api/chat`
@@ -51,12 +54,15 @@ uvicorn src.api.main:app --reload --host 0.0.0.0 --port 8000
 ```json
 {
   "message": "Gợi ý phim sci-fi trending tuần này ở VN",
+  "session_id": "550e8400-e29b-41d4-a716-446655440000",
   "mode": "ReAct Agent v2",
   "provider": "openai",
   "model": "gpt-4o-mini",
   "max_steps": 5
 }
 ```
+
+Sau **10 lượt** hội thoại trong cùng `session_id`, lượt thứ 11+ tự gọi tóm tắt (`/api/summary` nội bộ) rồi dùng bản tóm tắt + vài lượt gần nhất làm ngữ cảnh.
 
 ### Ví dụ `POST /api/compare`
 

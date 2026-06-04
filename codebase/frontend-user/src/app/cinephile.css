@@ -246,7 +246,26 @@ input, textarea { font-family: inherit; }
 }
 .bubble p { margin: 0 0 9px; }
 .bubble p:last-child { margin-bottom: 0; }
+.bubble ul {
+  margin: 0 0 10px;
+  padding-left: 1.25rem;
+  list-style: disc;
+}
+.bubble li {
+  margin: 0 0 6px;
+  color: var(--text-mut);
+}
+.bubble li strong { color: var(--text); }
 .bubble strong { color: #fff; font-weight: 700; }
+.bubble em { color: var(--text-mut); font-style: italic; }
+.bubble code {
+  font-family: ui-monospace, monospace;
+  font-size: 12px;
+  background: var(--surface-2);
+  padding: 1px 5px;
+  border-radius: 4px;
+  color: var(--blue);
+}
 .bubble .mv-ref { color: var(--orange); font-weight: 600; }
 
 /* ---- Movie carousel ---- */

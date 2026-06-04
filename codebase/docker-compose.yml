@@ -42,7 +42,8 @@ services:
       context: ./frontend-user
       dockerfile: Dockerfile
       args:
-        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8000}
+        BACKEND_URL: http://backend:8000
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-}
         NEXT_PUBLIC_USE_REAL_API: ${NEXT_PUBLIC_USE_REAL_API:-true}
         NEXT_PUBLIC_DEFAULT_MODEL: ${NEXT_PUBLIC_DEFAULT_MODEL:-openai/gpt-4o-mini}
     container_name: cinephile-frontend-user

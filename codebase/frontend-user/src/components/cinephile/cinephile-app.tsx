@@ -3,11 +3,13 @@
 import { useEffect, useRef, useState } from "react";
 import { SUGGESTIONS, buildDuo, moodRes, resolveResponse } from "@/lib/cinephile/data";
 import {
+  createChatSession,
   mapBackendToChatResponse,
   parseModelKey,
   runChat,
   USE_REAL_API,
 } from "@/lib/api";
+import { newSessionId } from "@/lib/cinephile/session";
 import { MODES } from "@/lib/cinephile/constants";
 import type { AppConfig, ChatMessage, ChatResponse, Mood } from "@/lib/cinephile/types";
 import {
@@ -180,11 +182,28 @@ export function CinephileApp() {
       return null;
     }
   });
+  const [sessionId, setSessionId] = useState(() => newSessionId());
   const [msgs, setMsgs] = useState<ChatMessage[]>([]);
   const [draft, setDraft] = useState("");
   const [loading, setLoading] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
   const lastUserRef = useRef("");
+  const sessionIdRef = useRef(sessionId);
+
+  useEffect(() => {
+    sessionIdRef.current = sessionId;
+  }, [sessionId]);
+
+  useEffect(() => {
+    if (!cfg.realApi || !user) return;
+    createChatSession()
+      .then((s) => {
+        setSessionId(s.session_id);
+      })
+      .catch(() => {
+        /* get_or_create trên backend vẫn nhận UUID client */
+      });
+  }, [user, cfg.realApi]);
 
   const scrollDown = () => {
     requestAnimationFrame(() => {
@@ -207,11 +226,15 @@ export function CinephileApp() {
       if (cfg.realApi) {
         const data = await runChat({
           message: q,
+          session_id: sessionIdRef.current,
           modeId: cfg.mode,
           provider: cfg.provider,
           model: cfg.model,
           max_steps: cfg.maxSteps,
         });
+        if (data.session_id && data.session_id !== sessionIdRef.current) {
+          setSessionId(data.session_id);
+        }
         res = mapBackendToChatResponse(data);
       } else {
         const delay = MODES.find((m) => m.id === cfg.mode)?.react ? 2600 : 900;
@@ -269,10 +292,22 @@ export function CinephileApp() {
     if (lastUserRef.current) send(lastUserRef.current);
   }
 
-  function newChat() {
+  async function newChat() {
     setMsgs([]);
     setDraft("");
     lastUserRef.current = "";
+    const nextId = newSessionId();
+    setSessionId(nextId);
+    sessionIdRef.current = nextId;
+    if (cfg.realApi) {
+      try {
+        const s = await createChatSession();
+        setSessionId(s.session_id);
+        sessionIdRef.current = s.session_id;
+      } catch {
+        /* backend get_or_create(session_id) vẫn hoạt động */
+      }
+    }
   }
 
   function signOut() {
