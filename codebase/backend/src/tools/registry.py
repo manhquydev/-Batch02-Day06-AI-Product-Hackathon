@@ -61,9 +61,15 @@ TOOL_SPECS: List[Dict[str, Any]] = [
     ),
     _spec(
         "compare_movies",
-        "Compare 2-3 TMDB movies by live rating/metadata. Args: movie_ids (list of int). Use search_movies to find ids first.",
+        "Compare 2-3 TMDB movies by live rating/metadata and 1-2 real user reviews per movie. You MUST cite or paraphrase the review excerpts in your comparison. Args: movie_ids (list of int). Use search_movies to find ids first.",
         movie_tools.compare_movies,
         "compare_movies([27205, 157336, 1124])",
+    ),
+    _spec(
+        "get_reviews",
+        "Get 1-2 user reviews for a TMDB movie. Args: movie_id (int, TMDB id), limit (int, default 2, max 3). Use search_movies first to find movie_id.",
+        movie_tools.get_reviews,
+        "get_reviews(27205, 2)",
     ),
     _spec(
         "search_person",

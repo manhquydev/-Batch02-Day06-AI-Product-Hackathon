@@ -24,6 +24,7 @@ _search_cache: TTLCache = TTLCache(maxsize=256, ttl=1800)        # search result
 _trending_cache: TTLCache = TTLCache(maxsize=64, ttl=1800)       # trending: 30 min
 _providers_cache: TTLCache = TTLCache(maxsize=256, ttl=3600)     # watch providers: 1 hour
 _videos_cache: TTLCache = TTLCache(maxsize=256, ttl=3600)        # movie videos: 1 hour
+_reviews_cache: TTLCache = TTLCache(maxsize=256, ttl=1800)       # reviews: 30 min
 
 
 def _cache_key(path: str, params: Dict[str, Any]) -> str:
@@ -342,6 +343,41 @@ class TMDbClient:
             "buy": providers["buy"],
             "available_on": available,
         }
+
+    async def get_reviews(
+        self,
+        movie_id: int,
+        limit: int = 5,
+    ) -> List[Dict[str, Any]]:
+        """Fetch user reviews for a movie from TMDB."""
+        data = await self._get(
+            f"/movie/{int(movie_id)}/reviews",
+            {"page": 1},
+            cache=_reviews_cache,
+        )
+        results = data.get("results", [])[:limit]
+
+        # Fallback to en-US if no reviews found in default language (vi-VN)
+        if not results and self.language != "en-US":
+            data_en = await self._get(
+                f"/movie/{int(movie_id)}/reviews",
+                {"page": 1, "language": "en-US"},
+                cache=_reviews_cache,
+            )
+            results = data_en.get("results", [])[:limit]
+
+        reviews: List[Dict[str, Any]] = []
+        for r in results:
+            author_details = r.get("author_details") or {}
+            content = r.get("content", "")
+            reviews.append({
+                "author": r.get("author") or author_details.get("username", "Anonymous"),
+                "rating": author_details.get("rating"),
+                "content": content,
+                "created_at": r.get("created_at", ""),
+                "url": r.get("url", ""),
+            })
+        return reviews
 
     async def trending_movies(
         self,

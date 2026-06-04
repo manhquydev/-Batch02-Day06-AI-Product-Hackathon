@@ -138,6 +138,22 @@ async def check_streaming_availability(movie_id: int, country: str = "VN") -> st
 
 
 @_handle_errors
+async def get_reviews(movie_id: int, limit: int = 2) -> str:
+    """Get 1-2 user reviews for a movie from TMDB. Args: movie_id (int), limit (int, default 2, max 3)."""
+    limit = max(1, min(int(limit), 3))
+    client = get_client()
+    detail = await client.get_movie_details(int(movie_id))
+    reviews = await client.get_reviews(int(movie_id), limit=limit)
+    return _json_ok({
+        "movie_id": int(movie_id),
+        "title": detail["title"],
+        "source": "TMDB",
+        "count": len(reviews),
+        "reviews": reviews,
+    })
+
+
+@_handle_errors
 async def get_trending_movies(
     region: str = "VN",
     genre: Optional[str] = None,
@@ -165,19 +181,34 @@ async def get_trending_movies(
 
 @_handle_errors
 async def compare_movies(movie_ids: List[int]) -> str:
-    """Compare 2-3 TMDB movies using live ratings and metadata (parallel fetch)."""
+    """Compare 2-3 TMDB movies using live ratings, metadata and 1-2 user reviews per movie (parallel fetch). The reviews contain actual user opinions that MUST be cited in the comparison."""
     if not movie_ids or len(movie_ids) < 2:
         return _json_error("provide 2 or 3 TMDB movie_ids")
 
     movie_ids = [int(mid) for mid in movie_ids[:3]]
     client = get_client()
 
-    # Parallel fetching of movie details
-    details = await asyncio.gather(*[client.get_movie_details(mid) for mid in movie_ids])
+    # Parallel fetching of movie details AND reviews (2 reviews per movie)
+    detail_tasks = [client.get_movie_details(mid) for mid in movie_ids]
+    review_tasks = [client.get_reviews(mid, limit=2) for mid in movie_ids]
+    all_results = await asyncio.gather(*detail_tasks, *review_tasks)
+
+    details = all_results[:len(movie_ids)]
+    reviews_list = all_results[len(movie_ids):]
 
     rows = []
-    for detail in details:
+    for detail, reviews in zip(details, reviews_list):
         extras = _pros_cons(detail)
+        # Extract review highlights for the agent to cite
+        review_highlights = []
+        for rv in reviews:
+            highlight = {
+                "author": rv.get("author", "Anonymous"),
+                "rating": rv.get("rating"),
+                "content": rv.get("content", ""),
+            }
+            review_highlights.append(highlight)
+
         rows.append(
             {
                 "id": detail["id"],
@@ -188,11 +219,17 @@ async def compare_movies(movie_ids: List[int]) -> str:
                 "vote_count": detail.get("vote_count", 0),
                 "pros": extras["pros"],
                 "cons": extras["cons"],
+                "review_highlights": review_highlights,
             }
         )
 
     winner = max(rows, key=lambda row: row["rating"])["title"]
-    return _json_ok({"source": "TMDB", "comparison": rows, "winner_by_rating": winner})
+    return _json_ok({
+        "source": "TMDB",
+        "comparison": rows,
+        "winner_by_rating": winner,
+        "note": "Each movie includes 1-2 real user review excerpts. ALWAYS cite or paraphrase these reviews in your comparison.",
+    })
 
 
 @_handle_errors
