@@ -1,4 +1,5 @@
 import type { ChatResponse, Movie, ReasoningStep } from "./types";
+import { mockFollowUps } from "./follow-ups";
 
   // Deterministic hue per title so poster gradients stay stable.
   function hue(str: string): number {
@@ -268,14 +269,19 @@ import type { ChatResponse, Movie, ReasoningStep } from "./types";
 
   // resolve a user message -> response object (sample mode)
   export function resolveResponse(text: string): ChatResponse {
+    const withFollowUps = (res: ChatResponse): ChatResponse => ({
+      ...res,
+      followUps: res.followUps ?? mockFollowUps(text, res),
+    });
+
     if (ERRWORD.test(text)) {
       return { kind:"error", layout:"none",
         text:"Không kết nối được tới máy chủ agent (POST /api/chat). Có thể backend chưa chạy hoặc đã hết thời gian chờ.",
         errCode:"ECONNREFUSED · timeout sau 30s" };
     }
-    if (OFFTOPIC.test(text)) return REFUSE;
-    for (const f of FLOWS) { if (f.match.test(text)) return f.res as ChatResponse; }
-    return FALLBACK;
+    if (OFFTOPIC.test(text)) return withFollowUps(REFUSE);
+    for (const f of FLOWS) { if (f.match.test(text)) return withFollowUps(f.res as ChatResponse); }
+    return withFollowUps(FALLBACK);
   };
 
   // suggestion chips (empty state)

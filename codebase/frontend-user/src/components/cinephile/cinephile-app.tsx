@@ -1,9 +1,9 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { SUGGESTIONS, buildDuo, moodRes, resolveResponse } from "@/lib/cinephile/data";
+import { buildDuo, moodRes, resolveResponse } from "@/lib/cinephile/data";
+import { mockFollowUps } from "@/lib/cinephile/follow-ups";
 import {
-  createChatSession,
   mapBackendToChatResponse,
   parseModelKey,
   runChat,
@@ -11,7 +11,13 @@ import {
 } from "@/lib/api";
 import { newSessionId } from "@/lib/cinephile/session";
 import { MODES } from "@/lib/cinephile/constants";
-import type { AppConfig, ChatMessage, ChatResponse, Mood } from "@/lib/cinephile/types";
+import type {
+  AppConfig,
+  ChatMessage,
+  ChatResponse,
+  FollowUpChip,
+  Mood,
+} from "@/lib/cinephile/types";
 import {
   BigCard,
   Carousel,
@@ -28,14 +34,75 @@ import {
   UsernameGate,
 } from "./chrome";
 
+function FollowUpChips({
+  chips,
+  onPick,
+  disabled,
+}: {
+  chips: FollowUpChip[];
+  onPick: (text: string) => void;
+  disabled?: boolean;
+}) {
+  if (!chips.length) return null;
+  const hasKinds = chips.some((c) => c.kind);
+  const detailChips = hasKinds ? chips.filter((c) => c.kind === "detail") : [];
+  const continueChips = hasKinds
+    ? chips.filter((c) => c.kind === "continue")
+    : chips.filter((c) => c.kind !== "explore");
+  const exploreChips = hasKinds ? chips.filter((c) => c.kind === "explore") : [];
+
+  const renderGroup = (label: string, items: FollowUpChip[], className: string) => {
+    if (!items.length) return null;
+    return (
+      <div className={`follow-up-group ${className}`}>
+        <div className="follow-up-label">{label}</div>
+        <div className="follow-up-chips">
+          {items.map((c, i) => (
+            <button
+              type="button"
+              className="chip follow-chip"
+              key={`${className}-${i}`}
+              disabled={disabled}
+              onClick={() => onPick(c.text)}
+            >
+              <span className="ci">
+                <Icon
+                  name={
+                    className === "explore"
+                      ? "sparkle"
+                      : className === "detail"
+                        ? "clapper"
+                        : "layers"
+                  }
+                />
+              </span>
+              {c.text}
+            </button>
+          ))}
+        </div>
+      </div>
+    );
+  };
+
+  return (
+    <div className="follow-up-row">
+      {renderGroup("Tìm hiểu thêm", detailChips, "detail")}
+      {renderGroup("Tiếp tục chủ đề", continueChips, "continue")}
+      {renderGroup("Thử chủ đề khác", exploreChips, "explore")}
+    </div>
+  );
+}
+
 function AssistantBody({
   res,
   onPick,
   onRetry,
+  chipsDisabled,
 }: {
   res: ChatResponse;
   onPick: (text: string) => void;
   onRetry: () => void;
+  chipsDisabled?: boolean;
 }) {
   const {
     kind,
@@ -46,6 +113,7 @@ function AssistantBody({
     availability,
     compareNote,
     refuseChips,
+    followUps,
     errCode,
     tasteA,
     tasteB,
@@ -95,22 +163,28 @@ function AssistantBody({
   }
 
   if (kind === "refuse") {
+    const chips: FollowUpChip[] =
+      followUps ??
+      refuseChips?.map((t) => ({ text: t, kind: "explore" as const })) ??
+      [];
     return (
       <>
         <div className="bubble refuse" dangerouslySetInnerHTML={{ __html: text }} />
-        <div className="chips" style={{ justifyContent: "flex-start" }}>
-          {refuseChips?.map((c, i) => (
-            <button type="button" className="chip" key={i} onClick={() => onPick(c)}>
-              <span className="ci">
-                <Icon name="sparkle" />
-              </span>
-              {c}
-            </button>
-          ))}
-        </div>
+        <FollowUpChips chips={chips} onPick={onPick} disabled={chipsDisabled} />
       </>
     );
   }
+
+  const chips =
+    followUps ??
+    (movies?.length
+      ? [
+          {
+            text: `Cho tôi thêm phim cùng thể loại`,
+            kind: "continue" as const,
+          },
+        ]
+      : []);
 
   return (
     <>
@@ -126,6 +200,7 @@ function AssistantBody({
         <DuoResult tasteA={tasteA} tasteB={tasteB} picks={duoPicks} />
       )}
       {reasoning && reasoning.length > 0 && <ReasoningPanel steps={reasoning} />}
+      <FollowUpChips chips={chips} onPick={onPick} disabled={chipsDisabled} />
     </>
   );
 }
@@ -134,10 +209,12 @@ function MessageRow({
   msg,
   onPick,
   onRetry,
+  chipsDisabled,
 }: {
   msg: ChatMessage;
   onPick: (text: string) => void;
   onRetry: () => void;
+  chipsDisabled?: boolean;
 }) {
   if (msg.role === "user") {
     return (
@@ -155,7 +232,12 @@ function MessageRow({
         <Icon name="clapper" style={{ color: "#fff" }} />
       </div>
       <div className="bubble-wrap">
-        <AssistantBody res={msg.res} onPick={onPick} onRetry={onRetry} />
+        <AssistantBody
+          res={msg.res}
+          onPick={onPick}
+          onRetry={onRetry}
+          chipsDisabled={chipsDisabled}
+        />
       </div>
     </div>
   );
@@ -164,13 +246,18 @@ function MessageRow({
 const DEFAULT_MODEL_KEY =
   process.env.NEXT_PUBLIC_DEFAULT_MODEL ?? "openai/gpt-4o-mini";
 
+const DEFAULT_MAX_STEPS = Math.min(
+  12,
+  Math.max(2, Number(process.env.NEXT_PUBLIC_MAX_STEPS || 8) || 8),
+);
+
 export function CinephileApp() {
   const { provider, model } = parseModelKey(DEFAULT_MODEL_KEY);
   const cfg: AppConfig = {
     mode: "react2",
     model,
     provider,
-    maxSteps: 5,
+    maxSteps: DEFAULT_MAX_STEPS,
     realApi: USE_REAL_API,
   };
 
@@ -193,17 +280,6 @@ export function CinephileApp() {
   useEffect(() => {
     sessionIdRef.current = sessionId;
   }, [sessionId]);
-
-  useEffect(() => {
-    if (!cfg.realApi || !user) return;
-    createChatSession()
-      .then((s) => {
-        setSessionId(s.session_id);
-      })
-      .catch(() => {
-        /* get_or_create trên backend vẫn nhận UUID client */
-      });
-  }, [user, cfg.realApi]);
 
   const scrollDown = () => {
     requestAnimationFrame(() => {
@@ -239,7 +315,10 @@ export function CinephileApp() {
       } else {
         const delay = MODES.find((m) => m.id === cfg.mode)?.react ? 2600 : 900;
         await new Promise((r) => setTimeout(r, delay));
-        res = forced || resolveResponse(q);
+        const base = forced || resolveResponse(q);
+        res = base.followUps?.length
+          ? base
+          : { ...base, followUps: mockFollowUps(q, base) };
       }
       setMsgs((m) => [...m, { role: "ai", res }]);
     } catch (err) {
@@ -292,22 +371,13 @@ export function CinephileApp() {
     if (lastUserRef.current) send(lastUserRef.current);
   }
 
-  async function newChat() {
+  function newChat() {
     setMsgs([]);
     setDraft("");
     lastUserRef.current = "";
     const nextId = newSessionId();
     setSessionId(nextId);
     sessionIdRef.current = nextId;
-    if (cfg.realApi) {
-      try {
-        const s = await createChatSession();
-        setSessionId(s.session_id);
-        sessionIdRef.current = s.session_id;
-      } catch {
-        /* backend get_or_create(session_id) vẫn hoạt động */
-      }
-    }
   }
 
   function signOut() {
@@ -342,28 +412,18 @@ export function CinephileApp() {
         ) : (
           <div className="chat-inner">
             {msgs.map((m, i) => (
-              <MessageRow key={i} msg={m} onPick={(t) => send(t)} onRetry={retry} />
+              <MessageRow
+                key={i}
+                msg={m}
+                onPick={(t) => send(t)}
+                onRetry={retry}
+                chipsDisabled={loading}
+              />
             ))}
             {loading && <Loading mode={cfg.mode} />}
           </div>
         )}
       </div>
-
-      {msgs.length > 0 && (
-        <div className="quick-row no-scrollbar">
-          {SUGGESTIONS.map((s, i) => (
-            <button
-              type="button"
-              className="qchip"
-              key={i}
-              onClick={() => send(s.text)}
-              disabled={loading}
-            >
-              {s.text}
-            </button>
-          ))}
-        </div>
-      )}
 
       <div className="composer-zone">
         <Composer

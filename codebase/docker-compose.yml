@@ -2,7 +2,8 @@
 #
 #   cd codebase
 #   cp backend/.env.example backend/.env   # điền OPENAI_API_KEY, TMDB_API_KEY
-#   docker compose up --build
+#   docker compose up --build          # cần mạng tới Docker Hub
+#   docker compose up -d               # dùng image đã build (không pull registry)
 #
 # URLs:
 #   Guest UI  → http://localhost:3000
@@ -11,9 +12,11 @@
 
 services:
   backend:
+    image: codebase-backend:latest
     build:
       context: ./backend
       dockerfile: Dockerfile
+      pull: false
     container_name: cinephile-backend
     ports:
       - "8000:8000"
@@ -23,6 +26,12 @@ services:
     environment:
       TMDB_LANGUAGE: ${TMDB_LANGUAGE:-vi-VN}
       TMDB_REGION: ${TMDB_REGION:-VN}
+      TMDB_MAX_RETRIES: ${TMDB_MAX_RETRIES:-3}
+      AGENT_DEFAULT_MAX_STEPS: ${AGENT_DEFAULT_MAX_STEPS:-8}
+      AGENT_MAX_MAX_STEPS: ${AGENT_MAX_MAX_STEPS:-12}
+    dns:
+      - 8.8.8.8
+      - 1.1.1.1
     healthcheck:
       test:
         [
@@ -38,14 +47,17 @@ services:
     restart: unless-stopped
 
   frontend-user:
+    image: codebase-frontend-user:latest
     build:
       context: ./frontend-user
       dockerfile: Dockerfile
+      pull: false
       args:
         BACKEND_URL: http://backend:8000
         NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-}
         NEXT_PUBLIC_USE_REAL_API: ${NEXT_PUBLIC_USE_REAL_API:-true}
         NEXT_PUBLIC_DEFAULT_MODEL: ${NEXT_PUBLIC_DEFAULT_MODEL:-openai/gpt-4o-mini}
+        NEXT_PUBLIC_MAX_STEPS: ${NEXT_PUBLIC_MAX_STEPS:-8}
     container_name: cinephile-frontend-user
     ports:
       - "3000:3000"
@@ -55,9 +67,11 @@ services:
     restart: unless-stopped
 
   frontend-admin:
+    image: codebase-frontend-admin:latest
     build:
       context: ./frontend-admin
       dockerfile: Dockerfile
+      pull: false
       args:
         NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8000}
     container_name: cinephile-frontend-admin

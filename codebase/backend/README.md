@@ -58,9 +58,27 @@ uvicorn src.api.main:app --reload --host 0.0.0.0 --port 8000
   "mode": "ReAct Agent v2",
   "provider": "openai",
   "model": "gpt-4o-mini",
-  "max_steps": 5
+  "max_steps": 8
 }
 ```
+
+### `max_steps` (tỉ lệ hoàn thành cao hơn)
+
+| Cách | Giá trị |
+|------|---------|
+| Mặc định API | `8` (env `AGENT_DEFAULT_MAX_STEPS`) |
+| Tối đa API | `12` (env `AGENT_MAX_MAX_STEPS`) |
+| Guest UI | `NEXT_PUBLIC_MAX_STEPS=8` lúc build frontend-user |
+| Admin UI | Slider **Max steps** trên dashboard (2–12) |
+
+Trong `backend/.env`:
+
+```env
+AGENT_DEFAULT_MAX_STEPS=8
+AGENT_MAX_MAX_STEPS=12
+```
+
+Câu hỏi phức tạp (nhiều tool + session dài): thử `max_steps: 10` hoặc `12`. Agent còn **ép Final Answer** khi sắp hết bước và **gọi thêm 1 lần LLM** tổng hợp nếu vẫn thiếu đáp án.
 
 Sau **10 lượt** hội thoại trong cùng `session_id`, lượt thứ 11+ tự gọi tóm tắt (`/api/summary` nội bộ) rồi dùng bản tóm tắt + vài lượt gần nhất làm ngữ cảnh.
 
@@ -71,7 +89,7 @@ Sau **10 lượt** hội thoại trong cùng `session_id`, lượt thứ 11+ t�
   "query": "So sánh Inception và Interstellar",
   "models": ["openai/gpt-4o-mini", "deepseek/deepseek-chat"],
   "mode": "ReAct Agent v2",
-  "max_steps": 5
+  "max_steps": 8
 }
 ```
 
