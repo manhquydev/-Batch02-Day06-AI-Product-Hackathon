@@ -1,14 +1,14 @@
 import time
-from typing import Dict, Any, Optional, Generator
-from openai import OpenAI
+from typing import Dict, Any, Optional, AsyncGenerator
+from openai import AsyncOpenAI
 from src.core.llm_provider import LLMProvider
 
 class OpenAIProvider(LLMProvider):
     def __init__(self, model_name: str = "gpt-4o", api_key: Optional[str] = None):
         super().__init__(model_name, api_key)
-        self.client = OpenAI(api_key=self.api_key)
+        self.client = AsyncOpenAI(api_key=self.api_key)
 
-    def generate(self, prompt: str, system_prompt: Optional[str] = None) -> Dict[str, Any]:
+    async def generate(self, prompt: str, system_prompt: Optional[str] = None) -> Dict[str, Any]:
         start_time = time.time()
         
         messages = []
@@ -16,7 +16,7 @@ class OpenAIProvider(LLMProvider):
             messages.append({"role": "system", "content": system_prompt})
         messages.append({"role": "user", "content": prompt})
 
-        response = self.client.chat.completions.create(
+        response = await self.client.chat.completions.create(
             model=self.model_name,
             messages=messages,
         )
@@ -39,18 +39,18 @@ class OpenAIProvider(LLMProvider):
             "provider": "openai"
         }
 
-    def stream(self, prompt: str, system_prompt: Optional[str] = None) -> Generator[str, None, None]:
+    async def stream(self, prompt: str, system_prompt: Optional[str] = None) -> AsyncGenerator[str, None]:
         messages = []
         if system_prompt:
             messages.append({"role": "system", "content": system_prompt})
         messages.append({"role": "user", "content": prompt})
 
-        stream = self.client.chat.completions.create(
+        stream = await self.client.chat.completions.create(
             model=self.model_name,
             messages=messages,
             stream=True
         )
 
-        for chunk in stream:
+        async for chunk in stream:
             if chunk.choices[0].delta.content:
                 yield chunk.choices[0].delta.content

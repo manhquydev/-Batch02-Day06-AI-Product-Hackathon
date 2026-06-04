@@ -84,8 +84,18 @@ class TMDbClient:
         try:
             response = await client.get(path, params=query)
             response.raise_for_status()
-        except httpx.HTTPError as exc:
-            raise TMDbClientError(f"TMDB request failed: {exc}") from exc
+        except httpx.HTTPStatusError as exc:
+            msg = str(exc)
+            try:
+                payload = exc.response.json()
+                if isinstance(payload, dict):
+                    msg = payload.get("status_message") or payload.get("errors") or msg
+            except Exception:
+                pass
+            raise TMDbClientError(f"TMDB request failed ({exc.response.status_code}): {msg}") from exc
+        except httpx.RequestError as exc:
+            err_msg = str(exc) or "Không thể kết nối (Connection blocked/reset)"
+            raise TMDbClientError(f"TMDB network error: {type(exc).__name__} - {err_msg}") from exc
 
         payload = response.json()
         if isinstance(payload, dict) and payload.get("success") is False:

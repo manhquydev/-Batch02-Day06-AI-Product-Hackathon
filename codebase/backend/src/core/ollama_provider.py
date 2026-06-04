@@ -5,7 +5,8 @@ Không cần API key, cần Ollama server đang chạy tại localhost:11434.
 import json
 import time
 import requests
-from typing import Dict, Any, Optional, Generator, List
+import httpx
+from typing import Dict, Any, Optional, AsyncGenerator, List
 
 from src.core.llm_provider import LLMProvider
 
@@ -53,7 +54,7 @@ class OllamaProvider(LLMProvider):
         self.temperature = temperature
         self.num_predict = num_predict
 
-    def generate(self, prompt: str, system_prompt: Optional[str] = None) -> Dict[str, Any]:
+    async def generate(self, prompt: str, system_prompt: Optional[str] = None) -> Dict[str, Any]:
         start_time = time.time()
 
         payload: Dict[str, Any] = {
@@ -70,18 +71,19 @@ class OllamaProvider(LLMProvider):
             payload["system"] = system_prompt
 
         try:
-            resp = requests.post(
-                f"{self.base_url}/api/generate",
-                json=payload,
-                timeout=180,
-            )
+            async with httpx.AsyncClient() as client:
+                resp = await client.post(
+                    f"{self.base_url}/api/generate",
+                    json=payload,
+                    timeout=180.0,
+                )
             resp.raise_for_status()
-        except requests.exceptions.ConnectionError:
+        except httpx.ConnectError:
             raise ConnectionError(
                 f"Không thể kết nối Ollama tại {self.base_url}. "
                 "Hãy chạy: ollama serve"
             )
-        except requests.exceptions.Timeout:
+        except httpx.TimeoutException:
             raise TimeoutError(
                 f"Ollama timeout sau 180s. Model '{self.model_name}' có thể quá lớn cho máy."
             )
@@ -105,7 +107,7 @@ class OllamaProvider(LLMProvider):
             "provider": "ollama",
         }
 
-    def stream(self, prompt: str, system_prompt: Optional[str] = None) -> Generator[str, None, None]:
+    async def stream(self, prompt: str, system_prompt: Optional[str] = None) -> AsyncGenerator[str, None]:
         payload: Dict[str, Any] = {
             "model": self.model_name,
             "prompt": prompt,
@@ -115,18 +117,19 @@ class OllamaProvider(LLMProvider):
         if system_prompt:
             payload["system"] = system_prompt
 
-        with requests.post(
-            f"{self.base_url}/api/generate",
-            json=payload,
-            stream=True,
-            timeout=180,
-        ) as resp:
-            resp.raise_for_status()
-            for line in resp.iter_lines():
-                if line:
-                    chunk = json.loads(line)
-                    token = chunk.get("response", "")
-                    if token:
-                        yield token
-                    if chunk.get("done"):
-                        break
+        async with httpx.AsyncClient() as client:
+            async with client.stream(
+                "POST",
+                f"{self.base_url}/api/generate",
+                json=payload,
+                timeout=180.0,
+            ) as resp:
+                resp.raise_for_status()
+                async for line in resp.aiter_lines():
+                    if line:
+                        chunk = json.loads(line)
+                        token = chunk.get("response", "")
+                        if token:
+                            yield token
+                        if chunk.get("done"):
+                            break

@@ -1,6 +1,7 @@
 import time
 import os
-from typing import Dict, Any, Optional, Generator
+import asyncio
+from typing import Dict, Any, Optional, AsyncGenerator
 from llama_cpp import Llama
 from src.core.llm_provider import LLMProvider
 
@@ -31,7 +32,7 @@ class LocalProvider(LLMProvider):
             verbose=False
         )
 
-    def generate(self, prompt: str, system_prompt: Optional[str] = None) -> Dict[str, Any]:
+    async def generate(self, prompt: str, system_prompt: Optional[str] = None) -> Dict[str, Any]:
         start_time = time.time()
         
         # Phi-3 / Llama-3 style formatting if not handled by a template
@@ -41,12 +42,15 @@ class LocalProvider(LLMProvider):
         else:
             full_prompt = f"<|user|>\n{prompt}<|end|>\n<|assistant|>"
 
-        response = self.llm(
-            full_prompt,
-            max_tokens=self.max_tokens,
-            stop=["<|end|>", "Observation:"],
-            echo=False
-        )
+        def _blocking_generate():
+            return self.llm(
+                full_prompt,
+                max_tokens=self.max_tokens,
+                stop=["<|end|>", "Observation:"],
+                echo=False
+            )
+
+        response = await asyncio.to_thread(_blocking_generate)
 
         end_time = time.time()
         latency_ms = int((end_time - start_time) * 1000)
@@ -65,19 +69,22 @@ class LocalProvider(LLMProvider):
             "provider": "local"
         }
 
-    def stream(self, prompt: str, system_prompt: Optional[str] = None) -> Generator[str, None, None]:
+    async def stream(self, prompt: str, system_prompt: Optional[str] = None) -> AsyncGenerator[str, None]:
         full_prompt = prompt
         if system_prompt:
             full_prompt = f"<|system|>\n{system_prompt}<|end|>\n<|user|>\n{prompt}<|end|>\n<|assistant|>"
         else:
             full_prompt = f"<|user|>\n{prompt}<|end|>\n<|assistant|>"
 
-        stream = self.llm(
-            full_prompt,
-            max_tokens=self.max_tokens,
-            stop=["<|end|>", "Observation:"],
-            stream=True
-        )
+        def _blocking_stream():
+            return self.llm(
+                full_prompt,
+                max_tokens=self.max_tokens,
+                stop=["<|end|>", "Observation:"],
+                stream=True
+            )
+
+        stream = await asyncio.to_thread(_blocking_stream)
 
         for chunk in stream:
             token = chunk["choices"][0]["text"]
