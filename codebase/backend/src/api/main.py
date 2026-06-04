@@ -70,7 +70,7 @@ class ChatRequest(BaseModel):
     mode: ModeType = "ReAct Agent"
     provider: str = "openai"
     model: str = "gpt-4o-mini"
-    max_steps: int = Field(default=5, ge=2, le=8)
+    max_steps: int = Field(default=7, ge=2, le=8)
     rejected_movie_ids: List[int] = Field(
         default_factory=list,
         max_length=50,
@@ -92,7 +92,7 @@ class CompareRequest(BaseModel):
     query: str = Field(..., min_length=1)
     models: List[str] = Field(..., min_length=2, max_length=4, description="provider/model keys")
     mode: ModeType = "ReAct Agent"
-    max_steps: int = Field(default=5, ge=2, le=8)
+    max_steps: int = Field(default=7, ge=2, le=8)
 
 
 def _serialize_tools() -> List[Dict[str, Any]]:
@@ -205,6 +205,44 @@ async def chat(body: ChatRequest):
         return enriched
     except Exception as exc:
         raise HTTPException(status_code=500, detail="Internal server error") from exc
+
+
+@app.get("/api/admin/sessions")
+def admin_list_sessions():
+    sessions = session_store.list_all()
+    return {
+        "sessions": [
+            {
+                "id": s.id,
+                "turn_count": s.turn_count,
+                "has_summary": s.summary is not None,
+                "rejected_count": len(s.rejected_movie_ids),
+            }
+            for s in sessions
+        ]
+    }
+
+
+@app.get("/api/admin/sessions/{session_id}")
+def admin_get_session(session_id: str):
+    session = session_store.get(session_id)
+    if session is None:
+        raise HTTPException(status_code=404, detail="Session not found")
+    return {
+        "id": session.id,
+        "turn_count": session.turn_count,
+        "has_summary": session.summary is not None,
+        "summary": session.summary,
+        "rejected_movie_ids": list(session.rejected_movie_ids),
+        "turns": [{"user": t.user, "assistant": t.assistant} for t in session.turns],
+    }
+
+
+@app.delete("/api/admin/sessions/{session_id}", status_code=204)
+def admin_delete_session(session_id: str):
+    deleted = session_store.delete(session_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Session not found")
 
 
 @app.post("/api/compare")

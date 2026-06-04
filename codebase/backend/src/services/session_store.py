@@ -69,5 +69,13 @@ class SessionStore:
             self._sessions[session_id] = session
             return session
 
+    def list_all(self) -> List[ChatSession]:
+        with self._lock:
+            return list(self._sessions.values())
+
+    def delete(self, session_id: str) -> bool:
+        with self._lock:
+            return self._sessions.pop(session_id, None) is not None
+
 
 store = SessionStore()

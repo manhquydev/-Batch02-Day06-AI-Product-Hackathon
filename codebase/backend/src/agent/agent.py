@@ -193,8 +193,9 @@ Additional rules:
                         f"Action: {parsed['action']}\n"
                         f"Observation: {observation}\n"
                     )
+                steps += 1
             else:
-                # Retry logic: re-prompt with format reminder before giving up the step
+                # Format retry: re-prompt with format reminder; does NOT consume a step
                 format_retries += 1
                 trace.append(step_record)
                 if format_retries <= self.MAX_FORMAT_RETRIES:
@@ -211,8 +212,7 @@ Additional rules:
                         "Please provide Final Answer now.\n"
                     )
                     format_retries = 0
-
-            steps += 1
+                    steps += 1
 
         if not final_answer:
             final_answer = await self._force_final_answer(scratchpad, total_usage, total_latency)
