@@ -39,12 +39,12 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-ModeType = Literal["ReAct Agent v2", "ReAct Agent v1", "Chatbot Baseline"]
+ModeType = Literal["ReAct Agent", "ReAct Agent v2", "ReAct Agent v1", "Chatbot Baseline"]
 
 
 class ChatRequest(BaseModel):
     message: str = Field(..., min_length=1)
-    mode: ModeType = "ReAct Agent v2"
+    mode: ModeType = "ReAct Agent"
     provider: str = "openai"
     model: str = "gpt-4o-mini"
     max_steps: int = Field(default=5, ge=2, le=8)
@@ -53,7 +53,7 @@ class ChatRequest(BaseModel):
 class CompareRequest(BaseModel):
     query: str = Field(..., min_length=1)
     models: List[str] = Field(..., min_length=2, max_length=4, description="provider/model keys")
-    mode: ModeType = "ReAct Agent v2"
+    mode: ModeType = "ReAct Agent"
     max_steps: int = Field(default=5, ge=2, le=8)
 
 
@@ -98,18 +98,18 @@ def list_modes():
 
 
 @app.post("/api/chat")
-def chat(body: ChatRequest):
+async def chat(body: ChatRequest):
     if body.mode not in VALID_MODES:
         raise HTTPException(status_code=400, detail=f"Invalid mode. Choose one of: {VALID_MODES}")
     try:
-        result = run_query(body.mode, body.message, body.provider, body.model, body.max_steps)
+        result = await run_query(body.mode, body.message, body.provider, body.model, body.max_steps)
         return _enrich_result(result)
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
 @app.post("/api/compare")
-def compare(body: CompareRequest):
+async def compare(body: CompareRequest):
     if body.mode not in VALID_MODES:
         raise HTTPException(status_code=400, detail=f"Invalid mode. Choose one of: {VALID_MODES}")
     available = set(build_model_options())
@@ -120,7 +120,7 @@ def compare(body: CompareRequest):
             detail={"message": "Unknown model keys", "invalid": invalid, "available": list(available)},
         )
     try:
-        results = run_parallel_comparison(body.models, body.mode, body.query, body.max_steps)
+        results = await run_parallel_comparison(body.models, body.mode, body.query, body.max_steps)
         enriched = {}
         for key, res in results.items():
             enriched[key] = {**res, "movies": extract_movies_from_trace(res.get("trace"))}
