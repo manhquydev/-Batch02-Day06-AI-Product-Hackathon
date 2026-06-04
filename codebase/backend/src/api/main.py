@@ -20,8 +20,11 @@ if str(BACKEND_ROOT) not in sys.path:
 
 load_dotenv(BACKEND_ROOT / ".env")
 
+from src.services.chat_context import prepare_session_turn
 from src.services.comparison import build_model_options, run_parallel_comparison
 from src.services.query_runner import EXAMPLE_PROMPTS, VALID_MODES, run_query
+from src.services.session_store import ChatTurn, store as session_store
+from src.services.summarizer import summarize_messages, summarize_turns
 from src.tools.registry import TOOL_SPECS
 from src.utils.movies import extract_movies_from_trace
 
@@ -53,12 +56,36 @@ app.add_middleware(
 ModeType = Literal["ReAct Agent", "ReAct Agent v2", "ReAct Agent v1", "Chatbot Baseline"]
 
 
+class HistoryMessage(BaseModel):
+    role: Literal["user", "assistant"]
+    content: str = Field(..., min_length=1)
+
+
 class ChatRequest(BaseModel):
     message: str = Field(..., min_length=1)
+    session_id: Optional[str] = Field(
+        default=None,
+        description="UUID phiên chat; bỏ trống = một lượt độc lập (tương thích cũ).",
+    )
     mode: ModeType = "ReAct Agent"
     provider: str = "openai"
     model: str = "gpt-4o-mini"
     max_steps: int = Field(default=5, ge=2, le=8)
+    rejected_movie_ids: List[int] = Field(
+        default_factory=list,
+        max_length=50,
+        description="TMDB IDs của phim người dùng từ chối; sẽ không xuất hiện trong gợi ý tiếp theo.",
+    )
+
+
+class SummaryRequest(BaseModel):
+    messages: List[HistoryMessage] = Field(..., min_length=2)
+    provider: str = "openai"
+    model: str = "gpt-4o-mini"
+
+
+class NewSessionResponse(BaseModel):
+    session_id: str
 
 
 class CompareRequest(BaseModel):
@@ -108,15 +135,76 @@ def list_modes():
     return {"modes": list(VALID_MODES)}
 
 
+@app.post("/api/sessions", response_model=NewSessionResponse)
+def create_session():
+    session = session_store.create()
+    return NewSessionResponse(session_id=session.id)
+
+
+@app.post("/api/sessions/{session_id}/reset", response_model=NewSessionResponse)
+def reset_session(session_id: str):
+    session_store.reset(session_id)
+    return NewSessionResponse(session_id=session_id)
+
+
+@app.post("/api/summary")
+async def summarize_chat(body: SummaryRequest):
+    try:
+        payload = [{"role": m.role, "content": m.content} for m in body.messages]
+        summary = await summarize_messages(payload, body.provider, body.model)
+        return {"summary": summary}
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail="Internal server error while summarizing chat") from exc
+
+
 @app.post("/api/chat")
 async def chat(body: ChatRequest):
     if body.mode not in VALID_MODES:
         raise HTTPException(status_code=400, detail=f"Invalid mode. Choose one of: {VALID_MODES}")
     try:
-        result = await run_query(body.mode, body.message, body.provider, body.model, body.max_steps)
-        return _enrich_result(result)
+        contextual_input = None
+        session_id = body.session_id
+        turn_count = 0
+        summarized = False
+
+        if session_id:
+            session = session_store.get_or_create(session_id)
+            if body.rejected_movie_ids:
+                session.rejected_movie_ids.update(body.rejected_movie_ids)
+            turn_count = session.turn_count
+            agent_input, latest, summarized = await prepare_session_turn(
+                session,
+                body.message,
+                body.provider,
+                body.model,
+                summarize_turns,
+            )
+            contextual_input = agent_input
+            result = await run_query(
+                body.mode,
+                latest,
+                body.provider,
+                body.model,
+                body.max_steps,
+                contextual_input=contextual_input,
+            )
+            answer = result.get("answer") or ""
+            turn_count = session_store.append_turn(
+                session_id, ChatTurn(user=body.message, assistant=answer)
+            )
+        else:
+            result = await run_query(
+                body.mode, body.message, body.provider, body.model, body.max_steps
+            )
+
+        enriched = _enrich_result(result)
+        if session_id:
+            enriched["session_id"] = session_id
+            enriched["turn_count"] = turn_count
+            enriched["summarized"] = summarized
+        return enriched
     except Exception as exc:
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
+        raise HTTPException(status_code=500, detail="Internal server error") from exc
 
 
 @app.post("/api/compare")
@@ -137,4 +225,4 @@ async def compare(body: CompareRequest):
             enriched[key] = {**res, "movies": extract_movies_from_trace(res.get("trace"))}
         return {"results": enriched}
     except Exception as exc:
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
+        raise HTTPException(status_code=500, detail="Internal server error during comparison") from exc

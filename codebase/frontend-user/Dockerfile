@@ -8,9 +8,11 @@ WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 
-ARG NEXT_PUBLIC_API_URL=http://localhost:8000
+ARG BACKEND_URL=http://backend:8000
+ARG NEXT_PUBLIC_API_URL=
 ARG NEXT_PUBLIC_USE_REAL_API=true
 ARG NEXT_PUBLIC_DEFAULT_MODEL=openai/gpt-4o-mini
+ENV BACKEND_URL=$BACKEND_URL
 ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
 ENV NEXT_PUBLIC_USE_REAL_API=$NEXT_PUBLIC_USE_REAL_API
 ENV NEXT_PUBLIC_DEFAULT_MODEL=$NEXT_PUBLIC_DEFAULT_MODEL
@@ -20,9 +22,11 @@ RUN npm run build
 FROM node:20-alpine AS runner
 WORKDIR /app
 
+ARG BACKEND_URL=http://backend:8000
 ENV NODE_ENV=production \
     PORT=3000 \
-    HOSTNAME=0.0.0.0
+    HOSTNAME=0.0.0.0 \
+    BACKEND_URL=${BACKEND_URL}
 
 RUN addgroup --system --gid 1001 nodejs && \
     adduser --system --uid 1001 nextjs

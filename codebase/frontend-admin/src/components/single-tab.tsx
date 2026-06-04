@@ -4,9 +4,14 @@ import { runChat } from "@/lib/api";
 import type { ChatResponse } from "@/lib/types";
 import { ResultPanel } from "./result-panel";
 
-type Props = { mode: string; models: string[]; maxSteps: number };
+type Props = {
+  mode: string;
+  models: string[];
+  maxSteps: number;
+  onResult?: (latency: number, model: string, query?: string) => void;
+};
 
-export function SingleTab({ mode, models, maxSteps }: Props) {
+export function SingleTab({ mode, models, maxSteps, onResult }: Props) {
   const [model, setModel] = useState("");
   const [query, setQuery] = useState("");
   const [loading, setLoading] = useState(false);
@@ -24,6 +29,7 @@ export function SingleTab({ mode, models, maxSteps }: Props) {
     try {
       const r = await runChat({ message: query, mode, provider, model: rest.join("/"), max_steps: maxSteps });
       setResult(r);
+      onResult?.(r.latency_ms, effectiveModel, query);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {

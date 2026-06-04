@@ -3,10 +3,16 @@ import { useState } from "react";
 import { runCompare } from "@/lib/api";
 import type { CompareResponse } from "@/lib/types";
 import { ResultPanel } from "./result-panel";
+import { CompareChart } from "./compare-chart";
 
-type Props = { mode: string; models: string[]; maxSteps: number };
+type Props = {
+  mode: string;
+  models: string[];
+  maxSteps: number;
+  onResult?: (latency: number, model: string, query?: string) => void;
+};
 
-export function CompareTab({ mode, models, maxSteps }: Props) {
+export function CompareTab({ mode, models, maxSteps, onResult }: Props) {
   const [selected, setSelected] = useState<string[]>([]);
   const [query, setQuery] = useState("");
   const [loading, setLoading] = useState(false);
@@ -27,6 +33,11 @@ export function CompareTab({ mode, models, maxSteps }: Props) {
     try {
       const r = await runCompare({ query, models: selected, mode, max_steps: maxSteps });
       setResult(r);
+      Object.entries(r.results).forEach(([key, res]) => {
+        if (res.ok !== false && res.latency_ms != null) {
+          onResult?.(res.latency_ms, key, query);
+        }
+      });
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -97,13 +108,16 @@ export function CompareTab({ mode, models, maxSteps }: Props) {
         </div>
       )}
       {result && (
-        <div className={`grid gap-4 ${colClass}`}>
-          {Object.entries(result.results).map(([key, res]) => (
-            <div key={key} className="bg-zinc-800/50 border border-zinc-700 rounded-xl p-4 min-w-0">
-              <ResultPanel result={res} label={key} />
-            </div>
-          ))}
-        </div>
+        <>
+          <div className={`grid gap-4 ${colClass}`}>
+            {Object.entries(result.results).map(([key, res]) => (
+              <div key={key} className="bg-zinc-800/50 border border-zinc-700 rounded-xl p-4 min-w-0">
+                <ResultPanel result={res} label={key} />
+              </div>
+            ))}
+          </div>
+          <CompareChart results={result.results} />
+        </>
       )}
     </div>
   );

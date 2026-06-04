@@ -19,6 +19,7 @@ _details_cache: TTLCache = TTLCache(maxsize=512, ttl=3600)       # movie details
 _search_cache: TTLCache = TTLCache(maxsize=256, ttl=1800)        # search results: 30 min
 _trending_cache: TTLCache = TTLCache(maxsize=64, ttl=1800)       # trending: 30 min
 _providers_cache: TTLCache = TTLCache(maxsize=256, ttl=3600)     # watch providers: 1 hour
+_videos_cache: TTLCache = TTLCache(maxsize=256, ttl=3600)        # movie videos: 1 hour
 
 
 def _cache_key(path: str, params: Dict[str, Any]) -> str:
@@ -310,6 +311,28 @@ class TMDbClient:
             }
             for person in results
         ]
+
+    async def get_movie_videos(self, movie_id: int) -> Dict[str, Any]:
+        """Fetch movie videos from TMDB, returning the best YouTube trailer."""
+        data = await self._get(f"/movie/{int(movie_id)}/videos", cache=_videos_cache)
+        results = data.get("results", [])
+
+        # Priority: official YouTube trailers → any YouTube trailers → any YouTube video
+        trailers = [v for v in results if v.get("site") == "YouTube" and v.get("type") == "Trailer" and v.get("official")]
+        if not trailers:
+            trailers = [v for v in results if v.get("site") == "YouTube" and v.get("type") == "Trailer"]
+        if not trailers:
+            trailers = [v for v in results if v.get("site") == "YouTube"]
+
+        best = trailers[0] if trailers else None
+        best_key = best.get("key") if best else None
+        return {
+            "movie_id": movie_id,
+            "trailer_key": best_key,
+            "trailer_url": f"https://www.youtube.com/watch?v={best_key}" if best_key else None,
+            "trailer_embed_url": f"https://www.youtube.com/embed/{best_key}" if best_key else None,
+            "name": best.get("name") if best else None,
+        }
 
     async def get_movies_by_person(
         self, person_id: int, role: str = "director", limit: int = 5

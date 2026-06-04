@@ -1,9 +1,20 @@
 import type { ChatResponse, Movie, ReasoningStep } from "@/lib/cinephile/types";
 import { REFUSE } from "@/lib/cinephile/data";
 import { modeIdToBackend } from "@/lib/cinephile/constants";
+import { formatAnswerHtml } from "@/lib/cinephile/format-answer";
 
-export const API_BASE =
-  process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
+/**
+ * Base URL cho fetch từ trình duyệt.
+ * Mặc định "" → gọi cùng origin (Next rewrite → backend), tránh lỗi CORS OPTIONS 400.
+ * Chỉ set NEXT_PUBLIC_API_URL khi muốn gọi thẳng backend (phải khớp FRONTEND_USER_URL trên server).
+ */
+function resolveApiBase(): string {
+  const raw = process.env.NEXT_PUBLIC_API_URL?.trim();
+  if (!raw || raw === "/" || raw === "same-origin") return "";
+  return raw.replace(/\/$/, "");
+}
+
+export const API_BASE = resolveApiBase();
 
 export const USE_REAL_API =
   process.env.NEXT_PUBLIC_USE_REAL_API !== "false";
@@ -24,6 +35,9 @@ export type BackendChatResponse = {
   usage?: { prompt_tokens: number; completion_tokens: number; total_tokens: number };
   mode?: string;
   movies?: BackendMovie[];
+  session_id?: string;
+  turn_count?: number;
+  summarized?: boolean;
 };
 
 type BackendMovie = {
@@ -40,11 +54,22 @@ type BackendMovie = {
 
 export type ChatParams = {
   message: string;
+  session_id?: string;
   modeId: string;
   provider: string;
   model: string;
   max_steps: number;
 };
+
+export function createChatSession(): Promise<{ session_id: string }> {
+  return apiFetch("/api/sessions", { method: "POST" });
+}
+
+export function resetChatSession(sessionId: string): Promise<{ session_id: string }> {
+  return apiFetch(`/api/sessions/${encodeURIComponent(sessionId)}/reset`, {
+    method: "POST",
+  });
+}
 
 async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${API_BASE}${path}`, {
@@ -81,6 +106,7 @@ export function runChat(params: ChatParams): Promise<BackendChatResponse> {
     method: "POST",
     body: JSON.stringify({
       message: params.message,
+      session_id: params.session_id,
       mode,
       provider: params.provider,
       model: params.model,
@@ -119,13 +145,6 @@ export function normalizeMovie(raw: BackendMovie): Movie | null {
   };
 }
 
-function answerToHtml(answer: string): string {
-  const trimmed = answer.trim();
-  if (!trimmed) return "<p></p>";
-  if (/<[a-z][\s\S]*>/i.test(trimmed)) return trimmed;
-  return "<p>" + trimmed.replace(/\n+/g, "</p><p>") + "</p>";
-}
-
 function traceToReasoning(trace: BackendTraceStep[] | undefined): ReasoningStep[] {
   if (!trace?.length) return [];
   return trace
@@ -141,7 +160,7 @@ export function mapBackendToChatResponse(data: BackendChatResponse): ChatRespons
   if (data.mode === "domain_guard") {
     return {
       ...REFUSE,
-      text: answerToHtml(data.answer || REFUSE.text),
+      text: formatAnswerHtml(data.answer || REFUSE.text),
     };
   }
 
@@ -163,7 +182,7 @@ export function mapBackendToChatResponse(data: BackendChatResponse): ChatRespons
         : movies.length === 1
           ? "big"
           : "carousel",
-    text: answerToHtml(data.answer || ""),
+    text: formatAnswerHtml(data.answer || "", { compact: movies.length > 0 }),
     movies,
     reasoning: reasoning.length ? reasoning : undefined,
     plain: data.answer,

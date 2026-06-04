@@ -36,14 +36,18 @@ uvicorn src.api.main:app --reload --host 0.0.0.0 --port 8000
 2. Tạo `frontend-user/.env.local` (copy từ `.env.local.example`):
 
 ```env
-NEXT_PUBLIC_API_URL=http://localhost:8000
+BACKEND_URL=http://localhost:8000
 NEXT_PUBLIC_USE_REAL_API=true
 NEXT_PUBLIC_DEFAULT_MODEL=openai/gpt-4o-mini
 ```
 
-3. Chạy lại `npm run dev`. Chat sẽ gọi `POST http://localhost:8000/api/chat`.
+3. Chạy lại `npm run dev`. Browser gọi `POST /api/chat` (cùng origin) — Next proxy sang backend.
 
-Để dùng dữ liệu mẫu offline (không cần backend): `NEXT_PUBLIC_USE_REAL_API=false`.
+**CORS:** Backend chỉ cho phép một số origin (`FRONTEND_USER_URL`). Không set `NEXT_PUBLIC_API_URL` (hoặc để trống) để dùng proxy và tránh `OPTIONS /api/chat 400`.
+
+Để gọi thẳng `:8000` từ browser: `NEXT_PUBLIC_API_URL=http://localhost:8000` phải khớp `FRONTEND_USER_URL` trên backend.
+
+Để dùng dữ liệu mẫu offline: `NEXT_PUBLIC_USE_REAL_API=false`.
 
 ## Scripts
 
