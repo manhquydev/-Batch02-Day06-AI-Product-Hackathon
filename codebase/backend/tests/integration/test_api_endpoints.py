@@ -601,3 +601,142 @@ class TestCompareEndpoint:
         assert results["deepseek/deepseek-chat"]["ok"] is False
         assert "error" in results["deepseek/deepseek-chat"]
         assert "movies" in results["deepseek/deepseek-chat"]
+
+
+class TestAdminSessionsEndpoints:
+    """Tests for admin session management endpoints."""
+
+    def test_list_sessions_empty(self, client):
+        """GET /api/admin/sessions returns empty list on fresh store."""
+        from src.services.session_store import store as session_store
+        # Snapshot and clear existing sessions
+        original = dict(session_store._sessions)
+        session_store._sessions.clear()
+        try:
+            response = client.get("/api/admin/sessions")
+            assert response.status_code == 200
+            data = response.json()
+            assert "sessions" in data
+            assert data["sessions"] == []
+        finally:
+            session_store._sessions.update(original)
+
+    def test_list_sessions_returns_created_sessions(self, client):
+        """Sessions created via POST /api/sessions appear in admin list."""
+        r1 = client.post("/api/sessions")
+        r2 = client.post("/api/sessions")
+        sid1 = r1.json()["session_id"]
+        sid2 = r2.json()["session_id"]
+
+        response = client.get("/api/admin/sessions")
+        assert response.status_code == 200
+        ids = [s["id"] for s in response.json()["sessions"]]
+        assert sid1 in ids
+        assert sid2 in ids
+
+    def test_list_sessions_entry_shape(self, client):
+        """Each session entry has required fields with correct types."""
+        client.post("/api/sessions")
+
+        response = client.get("/api/admin/sessions")
+        sessions = response.json()["sessions"]
+        assert len(sessions) >= 1
+        entry = sessions[0]
+        assert isinstance(entry["id"], str)
+        assert isinstance(entry["turn_count"], int)
+        assert isinstance(entry["has_summary"], bool)
+        assert isinstance(entry["rejected_count"], int)
+
+    def test_list_sessions_new_session_has_zero_turns(self, client):
+        """Newly created session has turn_count=0 and has_summary=False."""
+        from src.services.session_store import store as session_store
+        original = dict(session_store._sessions)
+        session_store._sessions.clear()
+        try:
+            r = client.post("/api/sessions")
+            sid = r.json()["session_id"]
+
+            response = client.get("/api/admin/sessions")
+            sessions = {s["id"]: s for s in response.json()["sessions"]}
+            assert sessions[sid]["turn_count"] == 0
+            assert sessions[sid]["has_summary"] is False
+            assert sessions[sid]["rejected_count"] == 0
+        finally:
+            session_store._sessions.clear()
+            session_store._sessions.update(original)
+
+    def test_get_session_returns_full_detail(self, client):
+        """GET /api/admin/sessions/{id} returns full session detail."""
+        r = client.post("/api/sessions")
+        sid = r.json()["session_id"]
+
+        response = client.get(f"/api/admin/sessions/{sid}")
+        assert response.status_code == 200
+        data = response.json()
+        assert data["id"] == sid
+        assert isinstance(data["turn_count"], int)
+        assert isinstance(data["has_summary"], bool)
+        assert data["summary"] is None
+        assert isinstance(data["rejected_movie_ids"], list)
+        assert isinstance(data["turns"], list)
+
+    def test_get_session_not_found_returns_404(self, client):
+        """GET /api/admin/sessions/{id} returns 404 for unknown id."""
+        response = client.get("/api/admin/sessions/nonexistent-session-xyz-999")
+        assert response.status_code == 404
+
+    def test_get_session_turns_after_chat(self, client):
+        """Session turns are populated after a chat interaction."""
+        r = client.post("/api/sessions")
+        sid = r.json()["session_id"]
+
+        client.post("/api/chat", json={
+            "message": "Gợi ý phim hành động",
+            "session_id": sid,
+            "mode": "ReAct Agent",
+            "provider": "openai",
+            "model": "gpt-4o-mini",
+            "max_steps": 3,
+        })
+
+        response = client.get(f"/api/admin/sessions/{sid}")
+        data = response.json()
+        assert data["turn_count"] == 1
+        assert len(data["turns"]) == 1
+        turn = data["turns"][0]
+        assert turn["user"] == "Gợi ý phim hành động"
+        assert isinstance(turn["assistant"], str)
+
+    def test_delete_session_returns_204(self, client):
+        """DELETE /api/admin/sessions/{id} returns 204."""
+        r = client.post("/api/sessions")
+        sid = r.json()["session_id"]
+
+        response = client.delete(f"/api/admin/sessions/{sid}")
+        assert response.status_code == 204
+
+    def test_delete_session_removes_from_list(self, client):
+        """Deleted session no longer appears in admin list."""
+        r = client.post("/api/sessions")
+        sid = r.json()["session_id"]
+
+        client.delete(f"/api/admin/sessions/{sid}")
+
+        response = client.get("/api/admin/sessions")
+        ids = [s["id"] for s in response.json()["sessions"]]
+        assert sid not in ids
+
+    def test_delete_session_not_found_returns_404(self, client):
+        """DELETE /api/admin/sessions/{id} returns 404 for unknown id."""
+        response = client.delete("/api/admin/sessions/nonexistent-xyz-123")
+        assert response.status_code == 404
+
+    def test_delete_session_get_returns_404_after_delete(self, client):
+        """GET detail after DELETE returns 404."""
+        r = client.post("/api/sessions")
+        sid = r.json()["session_id"]
+
+        client.delete(f"/api/admin/sessions/{sid}")
+
+        response = client.get(f"/api/admin/sessions/{sid}")
+        assert response.status_code == 404
