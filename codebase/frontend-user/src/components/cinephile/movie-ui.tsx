@@ -160,28 +160,37 @@ export function Poster({ m, showNet = true }: { m: Movie; showNet?: boolean }) {
     .join("");
   return (
     <div className="poster" style={bg}>
-      <div
-        style={{
-          position: "absolute",
-          inset: 0,
-          display: "grid",
-          placeItems: "center",
-          overflow: "hidden",
-        }}
-      >
-        <span
+      {m.poster_url ? (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          src={m.poster_url}
+          alt={m.title}
+          style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "cover" }}
+        />
+      ) : (
+        <div
           style={{
-            fontFamily: "var(--font-display)",
-            fontSize: 88,
-            lineHeight: 1,
-            color: `hsl(${m.h2} 60% 60% / .14)`,
-            transform: "translateY(-6px)",
-            letterSpacing: ".02em",
+            position: "absolute",
+            inset: 0,
+            display: "grid",
+            placeItems: "center",
+            overflow: "hidden",
           }}
         >
-          {initials}
-        </span>
-      </div>
+          <span
+            style={{
+              fontFamily: "var(--font-display)",
+              fontSize: 88,
+              lineHeight: 1,
+              color: `hsl(${m.h2} 60% 60% / .14)`,
+              transform: "translateY(-6px)",
+              letterSpacing: ".02em",
+            }}
+          >
+            {initials}
+          </span>
+        </div>
+      )}
       <div
         style={{
           position: "absolute",

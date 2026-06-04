@@ -1,21 +1,15 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { SUGGESTIONS, buildDuo, moodRes, resolveResponse } from "@/lib/cinephile/data";
 import {
-  REFUSE,
-  SUGGESTIONS,
-  buildDuo,
-  moodRes,
-  resolveResponse,
-} from "@/lib/cinephile/data";
+  mapBackendToChatResponse,
+  parseModelKey,
+  runChat,
+  USE_REAL_API,
+} from "@/lib/api";
 import { MODES } from "@/lib/cinephile/constants";
-import type {
-  AppConfig,
-  ChatMessage,
-  ChatResponse,
-  Mood,
-  Movie,
-} from "@/lib/cinephile/types";
+import type { AppConfig, ChatMessage, ChatResponse, Mood } from "@/lib/cinephile/types";
 import {
   BigCard,
   Carousel,
@@ -165,61 +159,15 @@ function MessageRow({
   );
 }
 
-async function callRealApi({
-  message,
-  cfg,
-  history,
-}: {
-  message: string;
-  cfg: AppConfig;
-  history: ChatMessage[];
-}): Promise<ChatResponse> {
-  const resp = await fetch("/api/chat", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      message,
-      mode: cfg.mode,
-      model: cfg.model,
-      max_steps: cfg.maxSteps,
-      history: history.map((h) => ({
-        role: h.role,
-        content: h.role === "user" ? h.text : "",
-      })),
-    }),
-  });
-  if (!resp.ok) throw new Error("HTTP " + resp.status);
-  const data = await resp.json();
-
-  const norm = (mv: Movie & { poster_url?: string }): Movie => {
-    let h = 0;
-    const t = mv.title || "";
-    for (let i = 0; i < t.length; i++) h = (h * 31 + t.charCodeAt(i)) % 360;
-    return {
-      ...mv,
-      h1: h,
-      h2: (h + 38) % 360,
-      rating: mv.rating ?? 0,
-      genres: mv.genres || [],
-    };
-  };
-
-  if (data.refused) return REFUSE;
-  const movies = (data.movies || []).map(norm);
-  return {
-    kind: "normal",
-    layout: !movies.length ? "none" : movies.length === 1 ? "big" : "carousel",
-    text: "<p>" + (data.answer || "").replace(/\n+/g, "</p><p>") + "</p>",
-    movies,
-    reasoning: data.reasoning || [],
-  };
-}
+const DEFAULT_MODEL_KEY =
+  process.env.NEXT_PUBLIC_DEFAULT_MODEL ?? "openai/gpt-4o-mini";
 
 export function CinephileApp() {
-  const USE_REAL_API = false;
+  const { provider, model } = parseModelKey(DEFAULT_MODEL_KEY);
   const cfg: AppConfig = {
     mode: "react2",
-    model: "openai/gpt-4o-mini",
+    model,
+    provider,
     maxSteps: 5,
     realApi: USE_REAL_API,
   };
@@ -254,11 +202,17 @@ export function CinephileApp() {
     setMsgs((m) => [...m, { role: "user", text: q }]);
     setLoading(true);
 
-    const history = msgs;
     try {
       let res: ChatResponse;
       if (cfg.realApi) {
-        res = await callRealApi({ message: q, cfg, history });
+        const data = await runChat({
+          message: q,
+          modeId: cfg.mode,
+          provider: cfg.provider,
+          model: cfg.model,
+          max_steps: cfg.maxSteps,
+        });
+        res = mapBackendToChatResponse(data);
       } else {
         const delay = MODES.find((m) => m.id === cfg.mode)?.react ? 2600 : 900;
         await new Promise((r) => setTimeout(r, delay));
@@ -284,12 +238,30 @@ export function CinephileApp() {
   }
 
   function pickMood(m: Mood) {
-    send(m.prompt, moodRes(m));
+    send(m.prompt, cfg.realApi ? undefined : moodRes(m));
   }
+
+  /** Prompt gửi backend — bắt buộc có intent phim để không bị domain_guard chặn. */
+  function duoApiPrompt(a: string, b: string): string {
+    const ta = a.trim();
+    const tb = b.trim();
+    return (
+      `Gợi ý phim để hai người xem chung tối nay. ` +
+      `Một người thích ${ta}, một người thích ${tb}. ` +
+      `Tìm 3–4 phim cân bằng gu của cả hai, ưu tiên phim dễ xem ở Việt Nam.`
+    );
+  }
+
   function pickDuo(a: string, b: string) {
+    const ta = a.trim();
+    const tb = b.trim();
+    if (cfg.realApi) {
+      send(duoApiPrompt(ta, tb));
+      return;
+    }
     send(
-      `Đôi mình muốn xem chung — một người thích ${a.trim()}, một người thích ${b.trim()}.`,
-      buildDuo(a, b),
+      `Đôi mình muốn xem chung — một người thích ${ta}, một người thích ${tb}.`,
+      buildDuo(ta, tb),
     );
   }
 
