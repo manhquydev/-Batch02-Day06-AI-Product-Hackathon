@@ -1,8 +1,9 @@
 ---
 title: "Admin Panel — Trace Viewer & Metrics Dashboard"
-status: in-progress
+status: complete
 priority: P1
 created: 2026-06-04
+completed: 2026-06-04
 scope: project
 owner: Nguyễn Mạnh Quý (2A202600643)
 ---
@@ -43,17 +44,17 @@ Build admin dashboard để:
 
 | ID | Phase | Status | Effort | Priority |
 |----|-------|--------|--------|----------|
-| 01 | Layout shell + API client | pending | 30m | P1 |
-| 02 | Single chat panel | pending | 45m | P1 |
-| 03 | Trace viewer component | pending | 45m | P1 |
-| 04 | Metrics + Compare view | pending | 45m | P1 |
+| 01 | Layout shell + API client | done | 30m | P1 |
+| 02 | Single chat panel | done | 45m | P1 |
+| 03 | Trace viewer component | done | 45m | P1 |
+| 04 | Metrics + Compare view | done | 45m | P1 |
 
 ## Định nghĩa "done" cho demo
 
-- [ ] Chọn model → nhập query → nhận trace hiển thị step-by-step
-- [ ] Metrics: latency (ms), steps (#), tool calls (#) hiện dưới trace
-- [ ] Compare: 2 model chạy song song, trace mỗi model riêng
-- [ ] Không crash khi backend offline (hiện error state)
+- [x] Chọn model → nhập query → nhận trace hiển thị step-by-step
+- [x] Metrics: latency (ms), steps (#), tool calls (#) hiện dưới trace
+- [x] Compare: 2 model chạy song song, trace mỗi model riêng
+- [x] Không crash khi backend offline (hiện error state)
 
 ## File structure sau khi build
 
