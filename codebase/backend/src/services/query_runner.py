@@ -1,12 +1,13 @@
 """Run ReAct agent queries with async execution and dynamic language detection."""
 
 import re
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
 from src.agent.agent import ReActAgent
 from src.core.domain_guard import build_off_topic_result, is_clear_off_topic
 from src.core.factory import get_llm_provider
 from src.tools.registry import TOOL_SPECS
+from src.tools.tmdb_client import get_client
 
 EXAMPLE_PROMPTS = [
     "Tôi vừa xem Inception, gợi ý phim tương tự có trên Netflix.",
@@ -16,7 +17,7 @@ EXAMPLE_PROMPTS = [
     "Phim Get Out có trên Netflix VN không?",
 ]
 
-VALID_MODES = ("ReAct Agent",)
+VALID_MODES = ("ReAct Agent", "ReAct Agent v2", "ReAct Agent v1", "Chatbot Baseline")
 
 # Simple heuristic: if the query contains Vietnamese-specific characters, treat as Vietnamese
 _VIETNAMESE_PATTERN = re.compile(
@@ -32,9 +33,23 @@ def detect_language(text: str) -> str:
     return "en-US"
 
 
-async def run_query(mode: str, user_input: str, provider: str, model: str, max_steps: int) -> Dict[str, Any]:
-    if is_clear_off_topic(user_input):
-        return build_off_topic_result(user_input)
+async def run_query(
+    mode: str,
+    user_input: str,
+    provider: str,
+    model: str,
+    max_steps: int,
+    *,
+    contextual_input: Optional[str] = None,
+) -> Dict[str, Any]:
+    latest = user_input.strip()
+    if is_clear_off_topic(latest):
+        return build_off_topic_result(latest)
+
+    agent_input = (contextual_input or latest).strip()
+
+    language = detect_language(latest)
+    get_client(language=language)
 
     llm = get_llm_provider(provider=provider, model=model)
-    return await ReActAgent(llm=llm, tools=TOOL_SPECS, max_steps=max_steps).run(user_input)
+    return await ReActAgent(llm=llm, tools=TOOL_SPECS, max_steps=max_steps).run(agent_input)
