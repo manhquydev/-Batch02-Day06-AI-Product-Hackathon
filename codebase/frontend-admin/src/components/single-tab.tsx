@@ -54,7 +54,7 @@ export function SingleTab({ mode, models, maxSteps }: Props) {
           placeholder="e.g. Tôi buồn, muốn xem phim nhẹ nhàng — gợi ý 3 phim."
           value={query}
           onChange={(e) => setQuery(e.target.value)}
-          onKeyDown={(e) => e.key === "Enter" && !e.shiftKey && handleRun()}
+          onKeyDown={(e) => e.key === "Enter" && !e.shiftKey && models.length > 0 && handleRun()}
         />
         <button
           onClick={handleRun}

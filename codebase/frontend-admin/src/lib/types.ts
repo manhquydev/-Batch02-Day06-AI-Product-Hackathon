@@ -25,13 +25,13 @@ export type ChatResponse = {
 export type CompareResult = {
   ok: boolean;
   error?: string;
-  answer?: string;
+  answer: string;
   trace?: TraceStep[];
   steps?: number;
   latency_ms?: number;
   usage?: { prompt_tokens: number; completion_tokens: number; total_tokens: number };
   mode?: string;
-  movies?: Movie[];
+  movies: Movie[];
 };
 
 export type CompareResponse = {

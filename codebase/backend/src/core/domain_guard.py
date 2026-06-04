@@ -43,7 +43,6 @@ MOVIE_INTENT_TERMS = (
     "so sanh phim",
     "trending",
     "xem chung",
-    "doi minh",
     "hai nguoi xem",
     "the loai phim",
 )

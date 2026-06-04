@@ -76,17 +76,20 @@ class LocalProvider(LLMProvider):
         else:
             full_prompt = f"<|user|>\n{prompt}<|end|>\n<|assistant|>"
 
-        def _blocking_stream():
-            return self.llm(
+        def _blocking_stream_all() -> list:
+            tokens = []
+            for chunk in self.llm(
                 full_prompt,
                 max_tokens=self.max_tokens,
                 stop=["<|end|>", "Observation:"],
-                stream=True
-            )
+                stream=True,
+                echo=False,
+            ):
+                token = chunk["choices"][0]["text"]
+                if token:
+                    tokens.append(token)
+            return tokens
 
-        stream = await asyncio.to_thread(_blocking_stream)
-
-        for chunk in stream:
-            token = chunk["choices"][0]["text"]
-            if token:
-                yield token
+        tokens = await asyncio.to_thread(_blocking_stream_all)
+        for token in tokens:
+            yield token
